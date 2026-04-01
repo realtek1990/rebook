@@ -1,0 +1,5 @@
+markdown
+EbookLib
+beautifulsoup4
+markdownify
+python-dotenv

@@ -1,0 +1,11 @@
+# Środowisko wirtualne
+marker-env/
+venv/
+__pycache__/
+
+# Klucze API
+.env
+
+# Pliki tymczasowe
+*.log
+marker_temp_output/
