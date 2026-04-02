@@ -64,6 +64,13 @@ import objc  # noqa: E402
 from AppKit import *  # noqa: E402
 from Foundation import *  # noqa: E402
 
+# i18n — add app dir to path so we can import it
+import sys as _sys
+_app_dir = str(Path(__file__).parent.parent / "Resources" / "app")
+if _app_dir not in _sys.path:
+    _sys.path.insert(0, _app_dir)
+from i18n import t
+
 CORE_PACKAGES = [
     "pyobjc-framework-Cocoa",
     "litellm", "markdown", "ebooklib", "pymupdf",
@@ -98,7 +105,7 @@ class InstallerDelegate(NSObject):
         mask = NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(200, 200, W, H), mask, NSBackingStoreBuffered, False)
-        self.window.setTitle_("ReBook — Instalacja")
+        self.window.setTitle_(t("inst_window_title"))
         self.window.center()
 
         cv = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, W, H))
@@ -107,14 +114,13 @@ class InstallerDelegate(NSObject):
         top = H - 20
 
         # ── Title ────────────────────────────────────────────────────
-        title = NSTextField.labelWithString_("\U0001F4DA ReBook — Kreator instalacji")
+        title = NSTextField.labelWithString_(t("inst_title"))
         title.setFont_(NSFont.systemFontOfSize_weight_(20, 0.5))
         title.setFrame_(NSMakeRect(PAD, top - 30, CW, 28))
         cv.addSubview_(title)
         top -= 40
 
-        subtitle = NSTextField.labelWithString_(
-            "Konwerter PDF / EPUB ze wsparciem sztucznej inteligencji")
+        subtitle = NSTextField.labelWithString_(t("inst_subtitle"))
         subtitle.setFont_(NSFont.systemFontOfSize_(12))
         subtitle.setTextColor_(NSColor.secondaryLabelColor())
         subtitle.setFrame_(NSMakeRect(PAD, top - 18, CW, 16))
@@ -128,7 +134,7 @@ class InstallerDelegate(NSObject):
         top -= 20
 
         # ── Section Header ───────────────────────────────────────────
-        secHeader = NSTextField.labelWithString_("WYBIERZ TRYB INSTALACJI")
+        secHeader = NSTextField.labelWithString_(t("inst_section_header"))
         secHeader.setFont_(NSFont.systemFontOfSize_weight_(11, 0.6))
         secHeader.setTextColor_(NSColor.secondaryLabelColor())
         secHeader.setFrame_(NSMakeRect(PAD, top - 14, CW, 14))
@@ -139,18 +145,13 @@ class InstallerDelegate(NSObject):
         self.lightRadio = NSButton.alloc().initWithFrame_(
             NSMakeRect(PAD, top - 22, CW, 20))
         self.lightRadio.setButtonType_(NSRadioButton)
-        self.lightRadio.setTitle_("⚡ Lekka instalacja  (~100 MB)")
+        self.lightRadio.setTitle_(t("inst_light_title"))
         self.lightRadio.setFont_(NSFont.systemFontOfSize_weight_(14, 0.4))
         self.lightRadio.setState_(NSOnState)
         cv.addSubview_(self.lightRadio)
         top -= 26
 
-        lightDesc = NSTextField.wrappingLabelWithString_(
-            "  •  Konwersja EPUB → EPUB / Markdown / HTML\n"
-            "  •  Tłumaczenie i korekta AI (Gemini, GPT, Claude, Mistral...)\n"
-            "  •  30 równoległych wątków — błyskawiczna konwersja\n"
-            "  •  Wysyłka prosto na Kindle\n"
-            "  •  ⚠️ Bez obsługi plików PDF (brak OCR)")
+        lightDesc = NSTextField.wrappingLabelWithString_(t("inst_light_desc"))
         lightDesc.setFont_(NSFont.systemFontOfSize_(11))
         lightDesc.setTextColor_(NSColor.tertiaryLabelColor())
         lightDesc.setFrame_(NSMakeRect(PAD + 20, top - 78, CW - 20, 74))
@@ -161,18 +162,13 @@ class InstallerDelegate(NSObject):
         self.fullRadio = NSButton.alloc().initWithFrame_(
             NSMakeRect(PAD, top - 22, CW, 20))
         self.fullRadio.setButtonType_(NSRadioButton)
-        self.fullRadio.setTitle_("📦 Pełna instalacja  (~1.2 GB)")
+        self.fullRadio.setTitle_(t("inst_full_title"))
         self.fullRadio.setFont_(NSFont.systemFontOfSize_weight_(14, 0.4))
         self.fullRadio.setState_(NSOffState)
         cv.addSubview_(self.fullRadio)
         top -= 26
 
-        fullDesc = NSTextField.wrappingLabelWithString_(
-            "  •  Wszystko z wersji Lekkiej\n"
-            "  •  + Marker OCR — rozpoznawanie tekstu ze skanów PDF\n"
-            "  •  + PyTorch (~400 MB) i modele wizualne (~500 MB)\n"
-            "  •  Obsługa plików PDF i EPUB jako wejście\n"
-            "  •  💡 Marker OCR można doinstalować później")
+        fullDesc = NSTextField.wrappingLabelWithString_(t("inst_full_desc"))
         fullDesc.setFont_(NSFont.systemFontOfSize_(11))
         fullDesc.setTextColor_(NSColor.tertiaryLabelColor())
         fullDesc.setFrame_(NSMakeRect(PAD + 20, top - 78, CW - 20, 74))
@@ -195,7 +191,7 @@ class InstallerDelegate(NSObject):
         self.installBtn = NSButton.alloc().initWithFrame_(
             NSMakeRect(PAD, top - 38, CW, 38))
         self.installBtn.setBezelStyle_(NSBezelStyleRounded)
-        self.installBtn.setTitle_("\U0001F680  Instaluj ReBook")
+        self.installBtn.setTitle_(t("inst_install_btn"))
         self.installBtn.setFont_(NSFont.systemFontOfSize_weight_(14, 0.4))
         self.installBtn.setTarget_(self)
         self.installBtn.setAction_("startInstall:")
@@ -244,10 +240,10 @@ class InstallerDelegate(NSObject):
         self.installBtn.setEnabled_(False)
         self.lightRadio.setEnabled_(False)
         self.fullRadio.setEnabled_(False)
-        self.installBtn.setTitle_("\u23F3  Instalacja w toku\u2026")
+        self.installBtn.setTitle_(t("inst_installing"))
         self.progressBar.setHidden_(False)
         self.progressBar.startAnimation_(None)
-        self.statusLabel.setStringValue_("Przygotowywanie...")
+        self.statusLabel.setStringValue_(t("inst_preparing"))
 
         import threading
         threading.Thread(target=self._doInstall, daemon=True).start()
@@ -256,7 +252,7 @@ class InstallerDelegate(NSObject):
     def _doInstall(self):
         try:
             # ── Core packages ─────────────────────────────────────
-            self._updateStatus("Instaluję pakiety bazowe (~100 MB)...")
+            self._updateStatus(t("inst_core_progress"))
             cmd = [str(pip_bin), "install", "-q"] + CORE_PACKAGES
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -265,7 +261,7 @@ class InstallerDelegate(NSObject):
                     self._updateStatus(line.strip()[:80])
             proc.wait()
             if proc.returncode != 0:
-                self._updateStatus("❌ Błąd instalacji pakietów bazowych")
+                self._updateStatus(t("inst_core_error"))
                 self._scheduleUI("_installFailed")
                 return
 
@@ -274,8 +270,7 @@ class InstallerDelegate(NSObject):
 
             # ── Marker OCR (optional) ─────────────────────────────
             if self._install_marker:
-                self._updateStatus(
-                    "Instaluję Marker OCR + PyTorch (~1 GB)... To może potrwać kilka minut.")
+                self._updateStatus(t("inst_marker_progress"))
                 cmd2 = [str(pip_bin), "install", "-q"] + MARKER_PACKAGES
                 proc2 = subprocess.Popen(
                     cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -284,16 +279,15 @@ class InstallerDelegate(NSObject):
                         self._updateStatus(line.strip()[:80])
                 proc2.wait()
                 if proc2.returncode != 0:
-                    self._updateStatus(
-                        "⚠️ Marker OCR nie został zainstalowany, ale ReBook działa bez niego")
+                    self._updateStatus(t("inst_marker_warn"))
                 else:
                     MARKER_STAMP.touch()
 
-            self._updateStatus("✅ Instalacja zakończona!")
+            self._updateStatus(t("inst_done"))
             self._scheduleUI("_installDone")
 
         except Exception as e:
-            self._updateStatus(f"❌ Błąd: {e}")
+            self._updateStatus(f"❌ {t('error_prefix')}: {e}")
             self._scheduleUI("_installFailed")
 
     @objc.python_method
@@ -318,21 +312,17 @@ class InstallerDelegate(NSObject):
                 self.progressBar.stopAnimation_(None)
                 self.progressBar.setHidden_(True)
                 self.installBtn.setEnabled_(True)
-                self.installBtn.setTitle_("\U0001F680  Uruchom ReBook!")
+                self.installBtn.setTitle_(t("inst_launch_btn"))
                 self.installBtn.setAction_("launchApp:")
                 marker_note = ""
                 if not self._install_marker:
-                    marker_note = (
-                        "\n\n💡 Aby później doinstalować Marker OCR,\n"
-                        "otwórz Terminal i wpisz:\n"
-                        "~/.pdf2epub-app/env/bin/pip install marker-pdf")
-                self.statusLabel.setStringValue_(
-                    "✅ Gotowe! Kliknij przycisk aby uruchomić ReBook." + marker_note)
+                    marker_note = t("inst_marker_hint")
+                self.statusLabel.setStringValue_(t("inst_ready") + marker_note)
             elif method == "_installFailed":
                 self.progressBar.stopAnimation_(None)
                 self.progressBar.setHidden_(True)
                 self.installBtn.setEnabled_(True)
-                self.installBtn.setTitle_("\U0001F504  Spróbuj ponownie")
+                self.installBtn.setTitle_(t("inst_retry_btn"))
                 self.installBtn.setAction_("startInstall:")
                 self.lightRadio.setEnabled_(True)
                 self.fullRadio.setEnabled_(True)
