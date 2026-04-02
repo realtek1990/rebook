@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Instalacja — PDF→EPUB Converter</title>
+  <style>
+    body {
+      background: #0f0f13; color: white;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 40px;
+      width: 600px;
+      text-align: center;
+      box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+    }
+    h1 { margin-top: 0; font-size: 24px; }
+    p { color: rgba(255,255,255,0.7); line-height: 1.6; }
+    .term {
+      background: #000; border-radius: 8px; padding: 15px; margin: 20px 0;
+      height: 250px; overflow-y: auto; text-align: left;
+      font-family: monospace; font-size: 11px; color: #0f0; border: 1px solid #333;
+    }
+    .btn {
+      background: linear-gradient(135deg, #f7a04f, #f26d21);
+      color: white; border: none; padding: 12px 24px; border-radius: 8px;
+      font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s;
+    }
+    .btn:hover { background: linear-gradient(135deg, #f26d21, #e05500); }
+    .btn:disabled { background: #444; color: #888; cursor: not-allowed; opacity: 0.6; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Witaj w PDF→EPUB Converter! 👋</h1>
+  <p id="desc">Aby aplikacja działała sprawnie bez internetu (OCR), musimy najpierw pobrać zaawansowane silniki strukturalne i narzędzia Pythonowe (ok. 3-4 GB). To proces jednorazowy — zostanie wykonany automatycznie.</p>
+  
+  <button id="startBtn" class="btn" onclick="start()">☁️ Rozpocznij pobieranie i instalację</button>
+  
+  <div class="term" id="term" style="display: none;"></div>
+</div>
+
+<script>
+  function start() {
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('desc').textContent = "Trwa pobieranie ok 3-4 GB modeli AI / OCR w tle. Nie zamykaj tego okna - proces może potrwać kilka/kilkanaście minut (zależnie od Twojego łącza i procesora).";
+    document.getElementById('term').style.display = 'block';
+    
+    pywebview.api.start_install();
+  }
+  
+  function addLog(msg) {
+    const term = document.getElementById('term');
+    term.innerHTML += msg + '<br>';
+    term.scrollTop = term.scrollHeight;
+  }
+
+  function finishInstall(success) {
+    if (success) {
+      document.getElementById('desc').innerHTML = "<b>Instalacja zakończona sukcesem! 🎉</b>";
+      document.getElementById('startBtn').textContent = "🚀 Uruchom Aplikację";
+      document.getElementById('startBtn').style.display = 'inline-block';
+      document.getElementById('startBtn').onclick = () => {
+        document.getElementById('startBtn').disabled = true;
+        pywebview.api.launch_app();
+      };
+    } else {
+      document.getElementById('desc').textContent = "Wystąpił błąd instalacji. Skopiuj logi i uruchom aplikację ponownie.";
+    }
+  }
+</script>
+
+</body>
+</html>

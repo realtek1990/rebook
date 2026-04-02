@@ -1,0 +1,288 @@
+"""ReBook — Standalone conversion pipeline (PDF/EPUB/MD → EPUB/HTML/MD).
+
+Synchronous module usable by both the native macOS GUI and the web interface.
+Delegates AI correction/translation to corrector.py.
+"""
+import os
+import re
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+from typing import Callable, Optional
+
+import markdown as md_lib
+from ebooklib import epub
+
+import corrector
+
+WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
+MARKER_BIN = Path(sys.prefix) / "bin" / "marker_single"
+
+
+# ─── Public API ───────────────────────────────────────────────────────────────
+
+def convert_file(
+    input_path: str,
+    output_format: str = "epub",
+    use_llm: bool = False,
+    use_translate: bool = False,
+    lang_from: str = "",
+    lang_to: str = "polski",
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+) -> str:
+    """Run the full conversion pipeline synchronously.
+
+    Args:
+        input_path: Path to input file (PDF, EPUB, or MD).
+        output_format: 'epub', 'html', or 'md'.
+        use_llm: Enable AI correction/translation.
+        use_translate: Translate instead of correcting (requires use_llm).
+        lang_from: Source language (empty = auto-detect).
+        lang_to: Target language.
+        progress_callback: ``fn(stage, percent, message)`` called on updates.
+
+    Returns:
+        Absolute path to the output file.
+    """
+    src = Path(input_path)
+
+    def report(stage: str, pct: int, msg: str):
+        if progress_callback:
+            progress_callback(stage, pct, msg)
+
+    job_dir = WORKSPACE_DIR / "jobs" / uuid.uuid4().hex[:8]
+    job_dir.mkdir(parents=True, exist_ok=True)
+    images_dir = job_dir / "images"
+    images_dir.mkdir(exist_ok=True)
+    # Collect images that need embedding in EPUB output
+    collected_images = {}  # filename -> bytes
+
+    # ── Stage 1: Text Extraction / OCR ────────────────────────────────────
+    ext = src.suffix.lower()
+    if ext == ".md":
+        report("ocr", 100, "Pominięto OCR — plik Markdown")
+        md_text = src.read_text(encoding="utf-8")
+
+    elif ext == ".epub":
+        report("ocr", 10, "Rozpakowywanie EPUB…")
+        md_text, collected_images = _extract_epub(src, images_dir)
+        report("ocr", 100, f"Ekstrakcja EPUB zakończona ({len(collected_images)} ilustracji)")
+
+    else:  # .pdf
+        report("ocr", 0, "OCR — rozpoznawanie tekstu…")
+        md_text = _run_marker(src, job_dir, progress_callback)
+        report("ocr", 100, "OCR zakończone")
+
+    # ── Stage 2: AI Correction / Translation ──────────────────────────────
+    if use_llm:
+        label = "Tłumaczenie" if use_translate else "Korekcja AI"
+        report("correction", 0, f"{label} — inicjalizacja…")
+
+        def on_llm(cur, tot, msg):
+            pct = int(cur / tot * 100) if tot else 0
+            report("correction", pct, f"{label} ({cur}/{tot})")
+
+        md_text = corrector.correct_markdown(
+            md_text,
+            use_translate=use_translate,
+            lang_to=lang_to,
+            lang_from=lang_from,
+            progress_callback=on_llm,
+        )
+        report("correction", 100, f"{label} zakończona")
+
+    # ── Stage 3: Export ───────────────────────────────────────────────────
+    report("export", 50, f"Eksport → {output_format.upper()}…")
+    basename = src.stem
+
+    if output_format == "epub":
+        out = job_dir / f"{basename}.epub"
+        book = epub.EpubBook()
+        book.set_identifier(f"rebook-{uuid.uuid4().hex[:8]}")
+        book.set_title(basename)
+        book.set_language("pl")
+        _extract_cover(src, book)
+        # Embed all collected images into the EPUB
+        for img_name, img_data in collected_images.items():
+            mime = "image/png" if img_name.endswith(".png") else "image/jpeg"
+            img_item = epub.EpubImage()
+            img_item.file_name = f"images/{img_name}"
+            img_item.media_type = mime
+            img_item.content = img_data
+            book.add_item(img_item)
+        _create_epub(md_text, str(out), basename, book)
+
+    elif output_format == "html":
+        out = job_dir / f"{basename}.html"
+        body = md_lib.markdown(md_text, extensions=["tables", "smarty"])
+        out.write_text(
+            f'<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8">'
+            f"<title>{basename}</title>"
+            "<style>body{font-family:Georgia,serif;max-width:800px;"
+            "margin:2em auto;line-height:1.6;padding:0 1em}"
+            "h1{font-size:1.8em}h2{font-size:1.4em}"
+            "table{border-collapse:collapse;width:100%}"
+            "td,th{border:1px solid #ccc;padding:.3em .5em}</style></head>"
+            f"<body>{body}</body></html>",
+            encoding="utf-8",
+        )
+
+    else:  # markdown
+        out = job_dir / f"{basename}.md"
+        out.write_text(md_text, encoding="utf-8")
+
+    report("done", 100, f"Gotowe! → {out.name}")
+    return str(out)
+
+
+def is_marker_installed() -> bool:
+    return MARKER_BIN.exists()
+
+
+# ─── Internal helpers ─────────────────────────────────────────────────────────
+
+def _extract_epub(epub_path: Path, images_dir: Path) -> tuple[str, dict]:
+    """Extract EPUB to Markdown, preserving all images.
+    Returns (markdown_text, {filename: image_bytes}).
+    """
+    import ebooklib
+    import ebooklib.epub as epub_in
+    from bs4 import BeautifulSoup, Comment
+    from markdownify import markdownify as md_conv
+
+    book = epub_in.read_epub(str(epub_path))
+    collected_images = {}
+
+    # First pass: extract ALL images and save them
+    for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+        fname = Path(item.file_name).name
+        collected_images[fname] = item.get_content()
+        # Also save to disk so markdown can reference them
+        (images_dir / fname).write_bytes(item.get_content())
+
+    # Second pass: extract text, rewriting image src to our path
+    parts = []
+    for item in book.get_items():
+        if item.get_type() == ebooklib.ITEM_DOCUMENT:
+            html = item.get_content().decode("utf-8", errors="ignore")
+            html = re.sub(r"<\?xml[^>]*\?>", "", html)
+            html = re.sub(r"<!DOCTYPE[^>]*>", "", html, flags=re.IGNORECASE)
+            soup = BeautifulSoup(html, "html.parser")
+            for c in soup.find_all(string=lambda t: isinstance(t, Comment)):
+                c.extract()
+            # Fix image paths to use our local filenames
+            for img_tag in soup.find_all("img"):
+                src = img_tag.get("src", "")
+                fname = Path(src).name
+                if fname in collected_images:
+                    img_tag["src"] = f"images/{fname}"
+            parts.append(md_conv(str(soup), heading_style="ATX", escape_asterisks=False))
+    return "\n\n".join(parts), collected_images
+
+
+def _run_marker(pdf: Path, job_dir: Path, cb) -> str:
+    marker_out = job_dir / "marker_output"
+    env = os.environ.copy()
+    for k in ("RECOGNITION_BATCH_SIZE", "DETECTOR_BATCH_SIZE",
+              "LAYOUT_BATCH_SIZE", "TABLE_REC_BATCH_SIZE", "OCR_ERROR_BATCH_SIZE"):
+        env[k] = "2"
+    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    env.pop("TORCH_DEVICE", None)
+
+    proc = subprocess.Popen(
+        [str(MARKER_BIN), str(pdf), "--output_dir", str(marker_out),
+         "--output_format", "markdown"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+    )
+    buf = ""
+    while True:
+        chunk = proc.stdout.read(64)
+        if not chunk:
+            break
+        buf += chunk.decode("utf-8", errors="replace")
+        m = list(re.finditer(r"(\d{1,3})%", buf))
+        if m and cb:
+            pct = int(m[-1].group(1))
+            if pct <= 100:
+                cb("ocr", pct, f"OCR — {pct}%")
+        if len(buf) > 1024:
+            buf = buf[-200:]
+
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError("Marker OCR failed")
+
+    md_files = list(marker_out.rglob("*.md"))
+    if not md_files:
+        raise RuntimeError("Brak wyjścia Markdown z Marker OCR")
+    return md_files[0].read_text(encoding="utf-8")
+
+
+def _extract_cover(src: Path, book):
+    ext = src.suffix.lower()
+    if ext == ".pdf":
+        try:
+            import fitz
+            doc = fitz.open(str(src))
+            if len(doc) > 0:
+                pix = doc.load_page(0).get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+                book.set_cover("cover.png", pix.tobytes("png"))
+        except Exception:
+            pass
+    elif ext == ".epub":
+        try:
+            import ebooklib
+            import ebooklib.epub as epub_in
+            in_book = epub_in.read_epub(str(src))
+            for it in in_book.get_items_of_type(ebooklib.ITEM_IMAGE):
+                if "cover" in it.id.lower() or "cover" in it.file_name.lower():
+                    e = Path(it.file_name).suffix or ".jpg"
+                    book.set_cover(f"cover{e}", it.get_content())
+                    break
+        except Exception:
+            pass
+
+
+def _create_epub(md_text: str, output_path: str, title: str, book):
+    chapters_raw = re.split(r"(?=^#{1,2}\s)", md_text, flags=re.MULTILINE)
+
+    css = epub.EpubItem(
+        uid="style", file_name="style/default.css", media_type="text/css",
+        content=b"body{font-family:Georgia,serif;line-height:1.7;margin:1em;color:#222}"
+                b"h1{font-size:1.8em;margin-top:2em;border-bottom:1px solid #ccc;padding-bottom:.3em}"
+                b"h2{font-size:1.4em;margin-top:1.5em}h3{font-size:1.2em}"
+                b"table{border-collapse:collapse;width:100%;margin:1em 0}"
+                b"td,th{border:1px solid #ccc;padding:.3em .5em}"
+                b"blockquote{border-left:3px solid #ccc;margin-left:0;padding-left:1em;color:#555}"
+                b"p{margin:.5em 0}",
+    )
+    book.add_item(css)
+
+    conv = md_lib.Markdown(extensions=["tables", "smarty"])
+    spine = ["nav"]
+    toc = []
+
+    for i, ch_md in enumerate(chapters_raw):
+        if not ch_md.strip():
+            continue
+        m = re.match(r"^(#{1,3})\s+(.+)", ch_md.strip())
+        lvl = len(m.group(1)) if m else 99
+        ch_title = re.sub(r"<[^>]+>", "", m.group(2)).strip() if m else f"Część {i+1}"
+        ch_title = ch_title or f"Część {i+1}"
+
+        conv.reset()
+        html = conv.convert(ch_md)
+        ch = epub.EpubHtml(title=ch_title[:80], file_name=f"ch_{i:03d}.xhtml", lang="pl")
+        ch.content = f"<html><body>{html}</body></html>"
+        ch.add_item(css)
+        book.add_item(ch)
+        spine.append(ch)
+        if lvl <= 2:
+            toc.append(ch)
+
+    book.toc = toc
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = spine
+    epub.write_epub(output_path, book, {})

@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""ReBook — macOS App Bundle launcher with native Cocoa installer."""
+import glob
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+WORKSPACE = Path.home() / ".pdf2epub-app"
+VENV_DIR = WORKSPACE / "env"
+VENV_PYTHON = VENV_DIR / "bin" / "python3"
+MARKER_BIN = VENV_DIR / "bin" / "marker_single"
+
+# Prefer Homebrew Python (3.11+) for fast binary wheels
+brew_pythons = glob.glob("/opt/homebrew/bin/python3.*")
+built_pythons = [p for p in brew_pythons if "-config" not in p and "-m" not in p]
+BASE_PYTHON = sorted(built_pythons)[-1] if built_pythons else sys.executable
+
+
+def is_installed():
+    return VENV_DIR.exists() and MARKER_BIN.exists()
+
+
+def run_app():
+    """Launch the native macOS GUI."""
+    app_dir = Path(__file__).parent.parent / "Resources" / "app"
+    os.chdir(app_dir)
+    os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), "native_gui.py"])
+
+
+if is_installed():
+    run_app()
+
+# ─── Bootstrap: ensure PyObjC is available ────────────────────────────────────
+WORKSPACE.mkdir(parents=True, exist_ok=True)
+
+if not VENV_DIR.exists():
+    subprocess.run([BASE_PYTHON, "-m", "venv", str(VENV_DIR)], check=True)
+
+pip_bin = VENV_DIR / "bin" / "pip"
+
+# Make sure pyobjc-framework-Cocoa is installed for the native installer UI
+try:
+    subprocess.run(
+        [str(VENV_PYTHON), "-c", "from AppKit import *"],
+        check=True, capture_output=True,
+    )
+except subprocess.CalledProcessError:
+    subprocess.run(
+        [str(pip_bin), "install", "pyobjc-framework-Cocoa"],
+        check=True,
+    )
+    # Re-exec with venv python that now has Cocoa bindings
+    os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), __file__])
+
+
+# ─── Native Cocoa Installer ──────────────────────────────────────────────────
+
+from AppKit import *  # noqa: E402
+from Foundation import *  # noqa: E402
+
+PACKAGES = [
+    "marker-pdf", "litellm", "markdown", "ebooklib", "pymupdf",
+    "python-multipart", "beautifulsoup4", "markdownify",
+    "pyobjc-framework-Cocoa",
+]
+
+INSTALLING = False
+
+
+class InstallerDelegate(NSObject):
+    window = None
+    logText = None
+    progressBar = None
+    startBtn = None
+    _queue = None
+
+    def applicationDidFinishLaunching_(self, note):
+        import queue
+        self._queue = queue.Queue()
+
+        w = 560
+        h = 420
+        mask = NSTitledWindowMask | NSClosableWindowMask
+        self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(200, 200, w, h), mask, NSBackingStoreBuffered, False)
+        self.window.setTitle_("ReBook — Instalacja")
+        self.window.center()
+
+        cv = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+        self.window.setContentView_(cv)
+
+        # Title
+        title = NSTextField.labelWithString_("Witaj w ReBook! \U0001F4DA")
+        title.setFont_(NSFont.systemFontOfSize_weight_(20, 0.5))
+        title.setFrame_(NSMakeRect(24, h - 50, w - 48, 28))
+        cv.addSubview_(title)
+
+        # Description
+        desc = NSTextField.wrappingLabelWithString_(
+            "Aby aplikacja działała (OCR offline + AI), musimy pobrać ok. 3-4 GB "
+            "silników i modeli. To jednorazowy proces — kliknij przycisk poniżej."
+        )
+        desc.setFont_(NSFont.systemFontOfSize_(12))
+        desc.setTextColor_(NSColor.secondaryLabelColor())
+        desc.setFrame_(NSMakeRect(24, h - 100, w - 48, 44))
+        cv.addSubview_(desc)
+
+        # Start button
+        self.startBtn = NSButton.alloc().initWithFrame_(NSMakeRect(24, h - 140, 200, 32))
+        self.startBtn.setBezelStyle_(NSBezelStyleRounded)
+        self.startBtn.setTitle_("\u2601\uFE0F  Rozpocznij instalację")
+        self.startBtn.setTarget_(self)
+        self.startBtn.setAction_("startInstall:")
+        self.startBtn.setKeyEquivalent_("\r")
+        cv.addSubview_(self.startBtn)
+
+        # Progress bar
+        self.progressBar = NSProgressIndicator.alloc().initWithFrame_(
+            NSMakeRect(24, h - 170, w - 48, 6))
+        self.progressBar.setStyle_(NSProgressIndicatorBarStyle)
+        self.progressBar.setIndeterminate_(True)
+        self.progressBar.setHidden_(True)
+        cv.addSubview_(self.progressBar)
+
+        # Log area
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(24, 20, w - 48, h - 200))
+        scroll.setBorderType_(NSBezelBorder)
+        scroll.setHasVerticalScroller_(True)
+
+        self.logText = NSTextView.alloc().initWithFrame_(
+            NSMakeRect(0, 0, w - 64, h - 200))
+        self.logText.setEditable_(False)
+        self.logText.setFont_(NSFont.monospacedSystemFontOfSize_weight_(10, 0.0))
+        self.logText.setTextColor_(NSColor.secondaryLabelColor())
+        scroll.setDocumentView_(self.logText)
+        cv.addSubview_(scroll)
+
+        self.window.makeKeyAndOrderFront_(None)
+        NSApp.activateIgnoringOtherApps_(True)
+
+    def applicationShouldTerminateAfterLastWindowClosed_(self, app):
+        return True
+
+    def startInstall_(self, sender):
+        global INSTALLING
+        if INSTALLING:
+            return
+        INSTALLING = True
+        self.startBtn.setEnabled_(False)
+        self.startBtn.setTitle_("\u23F3  Instalacja w toku\u2026")
+        self.progressBar.setHidden_(False)
+        self.progressBar.startAnimation_(None)
+
+        import threading
+        threading.Thread(target=self._doInstall, daemon=True).start()
+
+    @objc.python_method
+    def _doInstall(self):
+        import queue
+        try:
+            self._log("Instalacja pakietów Python...\n")
+            cmd = [str(pip_bin), "install"] + PACKAGES
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            )
+            for line in proc.stdout:
+                if line.strip():
+                    self._log(line)
+            proc.wait()
+
+            if proc.returncode == 0:
+                self._log("\n✅ Instalacja zakończona sukcesem!\n")
+                self._scheduleUI("_installDone")
+            else:
+                self._log(f"\n❌ Błąd instalacji (kod: {proc.returncode})\n")
+                self._scheduleUI("_installFailed")
+        except Exception as e:
+            self._log(f"\n❌ Wyjątek: {e}\n")
+            self._scheduleUI("_installFailed")
+
+    @objc.python_method
+    def _log(self, msg):
+        self._queue.put(("_appendLog", msg))
+        self.performSelectorOnMainThread_withObject_waitUntilDone_(
+            "processQueue:", None, False)
+
+    @objc.python_method
+    def _scheduleUI(self, method):
+        self._queue.put((method, None))
+        self.performSelectorOnMainThread_withObject_waitUntilDone_(
+            "processQueue:", None, False)
+
+    def processQueue_(self, _):
+        while not self._queue.empty():
+            method, data = self._queue.get_nowait()
+            if method == "_appendLog":
+                storage = self.logText.textStorage()
+                storage.beginEditing()
+                attr = NSAttributedString.alloc().initWithString_(data)
+                storage.appendAttributedString_(attr)
+                storage.endEditing()
+                self.logText.scrollRangeToVisible_(NSMakeRange(storage.length(), 0))
+            elif method == "_installDone":
+                self.progressBar.stopAnimation_(None)
+                self.startBtn.setEnabled_(True)
+                self.startBtn.setTitle_("\U0001F680  Uruchom ReBook")
+                self.startBtn.setAction_("launchApp:")
+            elif method == "_installFailed":
+                self.progressBar.stopAnimation_(None)
+                self.startBtn.setEnabled_(True)
+                self.startBtn.setTitle_("\U0001F504  Spróbuj ponownie")
+                self.startBtn.setAction_("startInstall:")
+                global INSTALLING
+                INSTALLING = False
+
+    def launchApp_(self, sender):
+        self.window.close()
+        NSApp.terminate_(None)
+        # After app terminates, the launcher re-runs and is_installed() will be True
+        run_app()
+
+
+if __name__ == "__main__":
+    app = NSApplication.sharedApplication()
+    app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    delegate = InstallerDelegate.alloc().init()
+    app.setDelegate_(delegate)
+    app.run()
+    # If we get here, installation is done — try to launch the main app
+    if is_installed():
+        run_app()
