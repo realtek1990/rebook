@@ -1,112 +1,108 @@
 #!/bin/bash
 # ╔═══════════════════════════════════════════════════════════════════╗
-# ║               ReBook — Instalator macOS                         ║
-# ║     PDF/EPUB Converter ze wsparciem AI (Gemini, GPT, Claude)    ║
+# ║          ReBook — Natywny Instalator macOS (GUI)                ║
 # ╚═══════════════════════════════════════════════════════════════════╝
-
 set -e
-
-# ── Kolory ────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
 
 INSTALL_DIR="$HOME/.pdf2epub-app"
 VENV_DIR="$INSTALL_DIR/env"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_BUNDLE="$SCRIPT_DIR/PDF-Converter.app"
+LOG_FILE="/tmp/rebook_install.log"
 
-# ── Nagłówek ──────────────────────────────────────────────────────────
-clear
-echo ""
-echo -e "${MAGENTA}${BOLD}"
-echo "  ╔═══════════════════════════════════════════════════╗"
-echo "  ║                                                   ║"
-echo "  ║     📚  R e B o o k   I n s t a l e r  📚        ║"
-echo "  ║                                                   ║"
-echo "  ║     PDF/EPUB → EPUB/MD/HTML                       ║"
-echo "  ║     z tłumaczeniem AI (Gemini, GPT, Claude)       ║"
-echo "  ║                                                   ║"
-echo "  ╚═══════════════════════════════════════════════════╝"
-echo -e "${NC}"
-echo ""
+# ── Helper: natywne okno dialogowe ────────────────────────────────────
+native_dialog() {
+    osascript -e "display dialog \"$1\" with title \"$2\" buttons {\"$3\"} default button \"$3\" with icon note" 2>/dev/null
+}
+
+native_error() {
+    osascript -e "display dialog \"$1\" with title \"ReBook — Błąd\" buttons {\"OK\"} default button \"OK\" with icon stop" 2>/dev/null
+}
 
 # ── Sprawdzenie Python 3 ─────────────────────────────────────────────
-echo -e "${CYAN}${BOLD}[1/5]${NC} Sprawdzam Python 3..."
-if command -v python3 &>/dev/null; then
-    PY_VER=$(python3 --version 2>&1)
-    echo -e "  ${GREEN}✓${NC} Znaleziono: ${BOLD}$PY_VER${NC}"
-else
-    echo -e "  ${RED}✗ Brak Python 3!${NC}"
-    echo -e "  Zainstaluj Python 3 z ${BLUE}https://www.python.org${NC} lub przez Homebrew:"
-    echo -e "  ${YELLOW}brew install python3${NC}"
+if ! command -v python3 &>/dev/null; then
+    native_error "Nie znaleziono Python 3 na tym komputerze.\n\nZainstaluj Python 3 ze strony:\nhttps://www.python.org/downloads/\n\nlub przez Homebrew:\nbrew install python3"
     exit 1
 fi
 
-# ── Tworzenie katalogu roboczego ──────────────────────────────────────
-echo ""
-echo -e "${CYAN}${BOLD}[2/5]${NC} Przygotowuję katalog roboczy..."
-mkdir -p "$INSTALL_DIR/jobs"
-echo -e "  ${GREEN}✓${NC} Katalog: ${BOLD}$INSTALL_DIR${NC}"
+PY_VER=$(python3 --version 2>&1)
 
-# ── Środowisko wirtualne ─────────────────────────────────────────────
-echo ""
-echo -e "${CYAN}${BOLD}[3/5]${NC} Tworzę środowisko wirtualne Python..."
-if [ -d "$VENV_DIR" ]; then
-    echo -e "  ${YELLOW}⚠${NC} Środowisko już istnieje. Pomijam tworzenie."
-    echo -e "  ${YELLOW}  (Aby wymusić reinstalację, usuń: $VENV_DIR)${NC}"
+# ── Ekran powitalny ──────────────────────────────────────────────────
+osascript -e '
+display dialog "Witaj w instalatorze ReBook!\n\nReBook to konwerter plików PDF i EPUB ze wsparciem sztucznej inteligencji.\n\nObsługiwane modele AI:\n  • Google Gemini 3 Flash\n  • OpenAI GPT-5 / GPT-4o\n  • Anthropic Claude 4.6 Opus\n  • Mistral Medium\n  • ZhipuAI GLM-4\n  • Groq (Llama 3.3, DeepSeek)\n\nWykryto: '"$PY_VER"'" with title "📚 ReBook — Instalator" buttons {"Anuluj", "Dalej →"} default button "Dalej →" cancel button "Anuluj" with icon note
+' 2>/dev/null || exit 0
+
+# ── Wybór trybu instalacji ────────────────────────────────────────────
+CHOICE=$(osascript 2>/dev/null <<'APPLESCRIPT'
+set installChoice to button returned of (display dialog ¬
+    "Wybierz tryb instalacji:" & return & return & ¬
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" & return & ¬
+    "⚡ LEKKA (~100 MB)" & return & ¬
+    "   • Konwersja EPUB → EPUB / Markdown / HTML" & return & ¬
+    "   • Tłumaczenie i korekta AI (30 wątków)" & return & ¬
+    "   • Wysyłka na Kindle" & return & ¬
+    "   • Obsługa plików EPUB jako wejście" & return & return & ¬
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" & return & ¬
+    "📦 PEŁNA (~1.2 GB)" & return & ¬
+    "   • Wszystko z wersji Lekkiej" & return & ¬
+    "   • + Marker OCR — rozpoznawanie tekstu z PDF" & return & ¬
+    "   • + PyTorch (~400 MB) + modele AI (~500 MB)" & return & ¬
+    "   • Obsługa plików PDF i EPUB jako wejście" & return & return & ¬
+    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" & return & ¬
+    "Marker OCR można doinstalować później w każdej chwili." ¬
+    with title "📚 ReBook — Wybór komponentów" ¬
+    buttons {"Anuluj", "⚡ Lekka", "📦 Pełna"} ¬
+    default button "⚡ Lekka" ¬
+    cancel button "Anuluj" ¬
+    with icon note)
+return installChoice
+APPLESCRIPT
+) || exit 0
+
+if [ "$CHOICE" = "📦 Pełna" ]; then
+    INSTALL_MARKER=true
+    MODE_LABEL="Pełna (z Marker OCR)"
 else
-    python3 -m venv "$VENV_DIR"
-    echo -e "  ${GREEN}✓${NC} Utworzono środowisko wirtualne"
+    INSTALL_MARKER=false
+    MODE_LABEL="Lekka (bez OCR)"
+fi
+
+# ── Potwierdzenie ────────────────────────────────────────────────────
+osascript -e '
+display dialog "Potwierdzenie instalacji:\n\n   📁 Katalog: '"$INSTALL_DIR"'\n   🔧 Tryb: '"$MODE_LABEL"'\n   🐍 Python: '"$PY_VER"'\n\nKliknij \"Instaluj\" aby rozpocząć.\nProces może potrwać kilka minut." with title "📚 ReBook — Potwierdzenie" buttons {"Anuluj", "Instaluj"} default button "Instaluj" cancel button "Anuluj" with icon note
+' 2>/dev/null || exit 0
+
+# ── Instalacja w tle z natywnym paskiem postępu ──────────────────────
+
+# Uruchom pasek postępu w tle (natywne okno Cocoa)
+osascript -e '
+tell application "System Events"
+    set progress description to "Instalacja ReBook..."
+    set progress additional description to "Przygotowywanie środowiska..."
+    set progress total steps to -1
+end tell
+' 2>/dev/null &
+
+# Funkcja aktualizacji postępu
+update_progress() {
+    osascript -e "display notification \"$1\" with title \"📚 ReBook Installer\"" 2>/dev/null
+}
+
+# ── Krok 1: Katalog roboczy ──────────────────────────────────────────
+update_progress "Tworzę katalog roboczy..."
+mkdir -p "$INSTALL_DIR/jobs"
+
+# ── Krok 2: Środowisko wirtualne ─────────────────────────────────────
+if [ ! -d "$VENV_DIR" ]; then
+    update_progress "Tworzę środowisko Python..."
+    python3 -m venv "$VENV_DIR" >> "$LOG_FILE" 2>&1
 fi
 
 source "$VENV_DIR/bin/activate"
-pip install --upgrade pip -q 2>/dev/null
+pip install --upgrade pip -q >> "$LOG_FILE" 2>&1
 
-# ── Wybor komponentów ────────────────────────────────────────────────
-echo ""
-echo -e "${MAGENTA}${BOLD}╔═══════════════════════════════════════════════════╗${NC}"
-echo -e "${MAGENTA}${BOLD}║           WYBÓR KOMPONENTÓW                       ║${NC}"
-echo -e "${MAGENTA}${BOLD}╚═══════════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "  ${BOLD}ReBook może działać w dwóch trybach:${NC}"
-echo ""
-echo -e "  ${GREEN}${BOLD}[1] Lekka instalacja${NC} (~100 MB)"
-echo -e "      • Konwersja EPUB → EPUB/MD/HTML"
-echo -e "      • Tłumaczenie i korekta AI (Gemini, GPT, Claude...)"
-echo -e "      • Wysyłka na Kindle"
-echo -e "      • ${YELLOW}Bez OCR z PDF${NC} (pliki PDF nie będą obsługiwane)"
-echo ""
-echo -e "  ${BLUE}${BOLD}[2] Pełna instalacja${NC} (~1.2 GB)"
-echo -e "      • Wszystko z opcji 1"
-echo -e "      • ${GREEN}+ Marker OCR${NC} — rozpoznawanie tekstu z PDF"
-echo -e "      • Wymaga pobrania PyTorch (~400 MB) i modeli AI (~500 MB)"
-echo ""
-echo -e "  ${YELLOW}${BOLD}[3] Anuluj instalację${NC}"
-echo ""
-
-while true; do
-    echo -ne "  ${BOLD}Wybierz opcję [1/2/3]: ${NC}"
-    read -r choice
-    case "$choice" in
-        1) INSTALL_MARKER=false; break ;;
-        2) INSTALL_MARKER=true; break ;;
-        3) echo -e "\n  ${YELLOW}Instalacja anulowana.${NC}"; exit 0 ;;
-        *) echo -e "  ${RED}Nieprawidłowy wybór. Wpisz 1, 2 lub 3.${NC}" ;;
-    esac
-done
-
-# ── Instalacja zależności ─────────────────────────────────────────────
-echo ""
-echo -e "${CYAN}${BOLD}[4/5]${NC} Instaluję zależności..."
-
-# Core dependencies (always installed)
-echo -e "  ${BLUE}→${NC} Instaluję pakiety bazowe..."
+# ── Krok 3: Pakiety bazowe ───────────────────────────────────────────
+update_progress "Instaluję pakiety bazowe (~100 MB)..."
 pip install -q \
     pyobjc-framework-Cocoa \
     markdown \
@@ -115,60 +111,44 @@ pip install -q \
     markdownify \
     litellm \
     PyMuPDF \
-    2>&1 | tail -1
+    >> "$LOG_FILE" 2>&1
 
-echo -e "  ${GREEN}✓${NC} Pakiety bazowe zainstalowane"
-
+# ── Krok 4: Marker OCR (opcjonalnie) ─────────────────────────────────
 if [ "$INSTALL_MARKER" = true ]; then
-    echo ""
-    echo -e "  ${BLUE}→${NC} Instaluję Marker OCR + PyTorch (to może potrwać kilka minut)..."
-    pip install -q marker-pdf 2>&1 | tail -3
-    echo -e "  ${GREEN}✓${NC} Marker OCR zainstalowany"
-else
-    echo -e "  ${YELLOW}→${NC} Marker OCR pominięty (możesz doinstalować później: ${BOLD}install.sh${NC})"
+    update_progress "Instaluję Marker OCR + PyTorch (~1 GB)... To może potrwać kilka minut."
+    pip install -q marker-pdf >> "$LOG_FILE" 2>&1
 fi
 
-# ── Kopiowanie aplikacji do /Applications ─────────────────────────────
-echo ""
-echo -e "${CYAN}${BOLD}[5/5]${NC} Finalizuję instalację..."
-
+# ── Krok 5: Kopiowanie do /Applications ──────────────────────────────
 if [ -d "$APP_BUNDLE" ]; then
-    echo -ne "  Czy chcesz skopiować ReBook.app do /Applications? [t/n]: "
-    read -r copy_app
-    if [[ "$copy_app" =~ ^[tTyY]$ ]]; then
-        # Remove old version if exists
+    COPY_APP=$(osascript -e '
+    set copyChoice to button returned of (display dialog "Czy skopiować ReBook do folderu Aplikacje?\n\nPo skopiowaniu będziesz mógł uruchomić ReBook z Launchpada i Spotlight." with title "📚 ReBook — Instalacja" buttons {"Pomiń", "Kopiuj do Aplikacji"} default button "Kopiuj do Aplikacji" with icon note)
+    return copyChoice
+    ' 2>/dev/null) || COPY_APP="Pomiń"
+
+    if [ "$COPY_APP" = "Kopiuj do Aplikacji" ]; then
         rm -rf "/Applications/ReBook.app" 2>/dev/null
         cp -R "$APP_BUNDLE" "/Applications/ReBook.app"
-        echo -e "  ${GREEN}✓${NC} Skopiowano do ${BOLD}/Applications/ReBook.app${NC}"
-        echo -e "  ${GREEN}✓${NC} Możesz teraz uruchomić ReBook z Launchpada lub Spotlight!"
+        FINAL_APP="/Applications/ReBook.app"
     else
-        echo -e "  ${YELLOW}→${NC} Pominięto kopiowanie. Uruchom ręcznie: ${BOLD}open $APP_BUNDLE${NC}"
+        FINAL_APP="$APP_BUNDLE"
     fi
 else
-    echo -e "  ${YELLOW}⚠${NC} Nie znaleziono PDF-Converter.app w katalogu instalatora"
-    echo -e "  ${YELLOW}  Upewnij się, że install.sh jest obok PDF-Converter.app${NC}"
+    FINAL_APP=""
 fi
 
 # ── Gotowe! ───────────────────────────────────────────────────────────
-echo ""
-echo -e "${GREEN}${BOLD}"
-echo "  ╔═══════════════════════════════════════════════════╗"
-echo "  ║                                                   ║"
-echo "  ║     ✅  Instalacja zakończona pomyślnie!          ║"
-echo "  ║                                                   ║"
-echo "  ╚═══════════════════════════════════════════════════╝"
-echo -e "${NC}"
-
+MARKER_NOTE=""
 if [ "$INSTALL_MARKER" = false ]; then
-    echo -e "  ${YELLOW}💡 Aby później doinstalować Marker OCR (obsługa PDF):${NC}"
-    echo -e "     ${BOLD}source $VENV_DIR/bin/activate && pip install marker-pdf${NC}"
-    echo ""
+    MARKER_NOTE="\n\n💡 Aby później doinstalować Marker OCR:\nUruchom Terminal i wpisz:\nsource ~/.pdf2epub-app/env/bin/activate && pip install marker-pdf"
 fi
 
-echo -e "  ${BOLD}Jak zacząć:${NC}"
-echo -e "  1. Uruchom ReBook z Launchpada lub: ${BOLD}open /Applications/ReBook.app${NC}"
-echo -e "  2. Kliknij ⚙️ (Ustawienia) i podaj klucz API swojego dostawcy AI"
-echo -e "  3. Przeciągnij plik EPUB/PDF na okno i kliknij \"Konwertuj\"!"
-echo ""
-echo -e "  ${CYAN}Miłego czytania! 📖${NC}"
-echo ""
+RESULT=$(osascript -e '
+display dialog "✅ Instalacja zakończona pomyślnie!\n\n📚 ReBook jest gotowy do użycia.\n\nJak zacząć:\n1. Uruchom ReBook\n2. Kliknij ⚙️ Ustawienia\n3. Wybierz dostawcę AI i wklej klucz API\n4. Przeciągnij plik na okno i tłumacz!'"$MARKER_NOTE"'" with title "📚 ReBook — Sukces!" buttons {"Zamknij", "Uruchom ReBook"} default button "Uruchom ReBook" with icon note
+set result to button returned of result
+return result
+' 2>/dev/null) || RESULT="Zamknij"
+
+if [ "$RESULT" = "Uruchom ReBook" ] && [ -n "$FINAL_APP" ]; then
+    open "$FINAL_APP"
+fi
