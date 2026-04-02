@@ -41,16 +41,20 @@ if not VENV_DIR.exists():
 
 pip_bin = VENV_DIR / "bin" / "pip"
 
-try:
-    subprocess.run(
-        [str(VENV_PYTHON), "-c", "from AppKit import *"],
-        check=True, capture_output=True,
-    )
-except subprocess.CalledProcessError:
-    subprocess.run(
-        [str(pip_bin), "install", "pyobjc-framework-Cocoa"],
-        check=True,
-    )
+# If we're NOT running under the venv Python, re-exec under it
+if os.path.realpath(sys.executable) != os.path.realpath(str(VENV_PYTHON)):
+    # First make sure PyObjC is installed in the venv
+    try:
+        subprocess.run(
+            [str(VENV_PYTHON), "-c", "from AppKit import *"],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError:
+        subprocess.run(
+            [str(pip_bin), "install", "pyobjc-framework-Cocoa"],
+            check=True,
+        )
+    # Re-exec this same script under the venv Python
     os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), __file__])
 
 
