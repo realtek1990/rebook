@@ -11,6 +11,7 @@ from pathlib import Path
 import objc
 from AppKit import *
 from Foundation import *
+from i18n import t
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 WORKSPACE = Path.home() / ".pdf2epub-app"
@@ -21,8 +22,9 @@ W, H = 660, 740
 PAD = 24
 CW = W - 2 * PAD
 
-PROVIDERS = [
-    ("Brak (AI wyłączone)", "Brak"),
+def _providers():
+    return [
+    (t("provider_none"), "Brak"),
     ("Mistral AI", "mistral"),
     ("Kimi / Moonshot", "moonshot"),
     ("Zhipu AI", "zhipu"),
@@ -31,7 +33,7 @@ PROVIDERS = [
     ("Google Gemini", "gemini"),
     ("GLM / ZhipuAI", "zhipuai"),
     ("Groq", "groq"),
-]
+    ]
 
 FORMATS = ["EPUB", "Markdown", "HTML"]
 FORMAT_KEYS = ["epub", "md", "html"]
@@ -96,12 +98,12 @@ class DropView(NSView):
         icon.setFrame_(NSMakeRect(0, 18, w, 50))
         self.addSubview_(icon)
 
-        title = _label("Przeciągnij plik tutaj", size=14, bold=True)
+        title = _label(t("drop_title"), size=14, bold=True)
         title.setAlignment_(NSTextAlignmentCenter)
         title.setFrame_(NSMakeRect(0, 68, w, 20))
         self.addSubview_(title)
 
-        sub = _label("PDF, EPUB lub Markdown — lub kliknij", size=11, color=NSColor.secondaryLabelColor())
+        sub = _label(t("drop_subtitle"), size=11, color=NSColor.secondaryLabelColor())
         sub.setAlignment_(NSTextAlignmentCenter)
         sub.setFrame_(NSMakeRect(0, 90, w, 16))
         self.addSubview_(sub)
@@ -148,7 +150,7 @@ class DropView(NSView):
             import traceback
             traceback.print_exc()
             if _app_delegate:
-                _app_delegate._showAlert("Błąd pliku", str(e))
+                _app_delegate._showAlert(t("error_prefix"), str(e))
         return False
 
     def mouseDown_(self, event):
@@ -198,18 +200,18 @@ class AppDelegate(NSObject):
         bar = NSMenu.alloc().init()
         appItem = NSMenuItem.alloc().init()
         appMenu = NSMenu.alloc().init()
-        appMenu.addItemWithTitle_action_keyEquivalent_("O ReBook", "orderFrontStandardAboutPanel:", "")
+        appMenu.addItemWithTitle_action_keyEquivalent_(t("menu_about"), "orderFrontStandardAboutPanel:", "")
         appMenu.addItem_(NSMenuItem.separatorItem())
-        s = appMenu.addItemWithTitle_action_keyEquivalent_("Ustawienia\u2026", "openSettings:", ",")
+        s = appMenu.addItemWithTitle_action_keyEquivalent_(t("menu_settings"), "openSettings:", ",")
         s.setTarget_(self)
         appMenu.addItem_(NSMenuItem.separatorItem())
-        appMenu.addItemWithTitle_action_keyEquivalent_("Zamknij ReBook", "terminate:", "q")
+        appMenu.addItemWithTitle_action_keyEquivalent_(t("menu_quit"), "terminate:", "q")
         appItem.setSubmenu_(appMenu)
         bar.addItem_(appItem)
 
         fItem = NSMenuItem.alloc().init()
-        fMenu = NSMenu.alloc().initWithTitle_("Plik")
-        o = fMenu.addItemWithTitle_action_keyEquivalent_("Otwórz\u2026", "openFileDialog:", "o")
+        fMenu = NSMenu.alloc().initWithTitle_(t("menu_file"))
+        o = fMenu.addItemWithTitle_action_keyEquivalent_(t("menu_open"), "openFileDialog:", "o")
         o.setTarget_(self)
         fItem.setSubmenu_(fMenu)
         bar.addItem_(fItem)
@@ -234,13 +236,13 @@ class AppDelegate(NSObject):
         title.setFrame_(NSMakeRect(PAD, top - 44, CW - 40, 28))
         cv.addSubview_(title)
 
-        sub = _label("Konwerter PDF / EPUB ze wsparciem AI", size=12, color=NSColor.secondaryLabelColor())
+        sub = _label(t("app_subtitle"), size=12, color=NSColor.secondaryLabelColor())
         sub.setFrame_(NSMakeRect(PAD, top - 62, CW, 16))
         cv.addSubview_(sub)
 
         gear = NSButton.alloc().initWithFrame_(NSMakeRect(W - PAD - 36, top - 48, 36, 36))
         gear.setBezelStyle_(NSBezelStyleRounded)
-        sfImg = NSImage.imageWithSystemSymbolName_accessibilityDescription_("gearshape", "Ustawienia")
+        sfImg = NSImage.imageWithSystemSymbolName_accessibilityDescription_("gearshape", t("menu_settings"))
         if sfImg:
             gear.setImage_(sfImg)
             gear.setTitle_("")
@@ -266,7 +268,7 @@ class AppDelegate(NSObject):
         self._fileBadgeView.addSubview_(self._sizeLabel)
         rmBtn = NSButton.alloc().initWithFrame_(NSMakeRect(CW - 60, 48, 52, 28))
         rmBtn.setBezelStyle_(NSBezelStyleRounded)
-        rmBtn.setTitle_("Usuń")
+        rmBtn.setTitle_(t("remove_btn"))
         rmBtn.setTarget_(self)
         rmBtn.setAction_("removeFile:")
         self._fileBadgeView.addSubview_(rmBtn)
@@ -279,12 +281,12 @@ class AppDelegate(NSObject):
         cv.addSubview_(sep)
         top -= 16
 
-        optH = _label("OPCJE KONWERSJI", size=11, bold=True, color=NSColor.secondaryLabelColor())
+        optH = _label(t("options_header"), size=11, bold=True, color=NSColor.secondaryLabelColor())
         optH.setFrame_(NSMakeRect(PAD, top - 14, CW, 14))
         cv.addSubview_(optH)
         top -= 28
 
-        fmtLabel = _label("Format wyjściowy:", size=13)
+        fmtLabel = _label(t("format_label"), size=13)
         fmtLabel.setFrame_(NSMakeRect(PAD, top - 22, 140, 20))
         cv.addSubview_(fmtLabel)
 
@@ -300,14 +302,14 @@ class AppDelegate(NSObject):
 
         self._aiCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 22, CW, 20))
         self._aiCheck.setButtonType_(NSSwitchButton)
-        self._aiCheck.setTitle_("Korekcja AI (wymaga API Key)")
+        self._aiCheck.setTitle_(t("ai_check"))
         self._aiCheck.setState_(NSOnState)
         cv.addSubview_(self._aiCheck)
         top -= 30
 
         self._translateCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 22, CW, 20))
         self._translateCheck.setButtonType_(NSSwitchButton)
-        self._translateCheck.setTitle_("Tryb tłumaczenia (zamiast korekty)")
+        self._translateCheck.setTitle_(t("translate_check"))
         self._translateCheck.setTarget_(self)
         self._translateCheck.setAction_("toggleTranslate:")
         cv.addSubview_(self._translateCheck)
@@ -315,13 +317,13 @@ class AppDelegate(NSObject):
 
         self._langView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 60, CW, 56))
         self._langView.setHidden_(True)
-        ll1 = _label("Język źródłowy:", size=11, color=NSColor.secondaryLabelColor())
+        ll1 = _label(t("lang_from_label"), size=11, color=NSColor.secondaryLabelColor())
         ll1.setFrame_(NSMakeRect(0, 32, 110, 16))
         self._langView.addSubview_(ll1)
-        self._langFromField = _textfield("np. angielski (lub puste = auto)")
+        self._langFromField = _textfield(t("lang_from_placeholder"))
         self._langFromField.setFrame_(NSMakeRect(112, 30, CW - 112, 22))
         self._langView.addSubview_(self._langFromField)
-        ll2 = _label("Język docelowy:", size=11, color=NSColor.secondaryLabelColor())
+        ll2 = _label(t("lang_to_label"), size=11, color=NSColor.secondaryLabelColor())
         ll2.setFrame_(NSMakeRect(0, 4, 110, 16))
         self._langView.addSubview_(ll2)
         self._langToField = _textfield("polski")
@@ -333,7 +335,7 @@ class AppDelegate(NSObject):
 
         self._convertBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 40, CW, 40))
         self._convertBtn.setBezelStyle_(NSBezelStyleRounded)
-        self._convertBtn.setTitle_("\U0001F680  Konwertuj")
+        self._convertBtn.setTitle_(t("convert_btn"))
         self._convertBtn.setFont_(NSFont.systemFontOfSize_weight_(14, 0.3))
         self._convertBtn.setTarget_(self)
         self._convertBtn.setAction_("startConversion:")
@@ -373,19 +375,19 @@ class AppDelegate(NSObject):
 
         self._resultView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 56, CW, 50))
         self._resultView.setHidden_(True)
-        rl = _label("\u2705  Konwersja zakończona!", size=14, bold=True)
+        rl = _label(t("conversion_done"), size=14, bold=True)
         rl.setTextColor_(NSColor.systemGreenColor())
         rl.setFrame_(NSMakeRect(0, 26, CW, 20))
         self._resultView.addSubview_(rl)
         self._downloadBtn = NSButton.alloc().initWithFrame_(NSMakeRect(0, 0, 130, 28))
         self._downloadBtn.setBezelStyle_(NSBezelStyleRounded)
-        self._downloadBtn.setTitle_("\U0001F4E5 Zapisz plik\u2026")
+        self._downloadBtn.setTitle_(t("save_btn"))
         self._downloadBtn.setTarget_(self)
         self._downloadBtn.setAction_("saveResult:")
         self._resultView.addSubview_(self._downloadBtn)
         self._kindleBtn = NSButton.alloc().initWithFrame_(NSMakeRect(138, 0, 100, 28))
         self._kindleBtn.setBezelStyle_(NSBezelStyleRounded)
-        self._kindleBtn.setTitle_("\U0001F4DA Kindle")
+        self._kindleBtn.setTitle_(t("kindle_btn"))
         self._kindleBtn.setTarget_(self)
         self._kindleBtn.setAction_("sendKindle:")
         self._resultView.addSubview_(self._kindleBtn)
@@ -399,7 +401,7 @@ class AppDelegate(NSObject):
         try:
             sw = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
                 NSMakeRect(0, 0, 440, 420), NSTitledWindowMask, NSBackingStoreBuffered, False)
-            sw.setTitle_("Ustawienia ReBook")
+            sw.setTitle_(t("settings_title"))
             self._settingsWindow = sw
             
             sv = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 440, 420))
@@ -409,7 +411,7 @@ class AppDelegate(NSObject):
             cw = 400
             cancelBtn = NSButton.alloc().initWithFrame_(NSMakeRect(cw - 60, 16, 80, 28))
             cancelBtn.setBezelStyle_(NSBezelStyleRounded)
-            cancelBtn.setTitle_("Anuluj")
+            cancelBtn.setTitle_(t("settings_cancel"))
             cancelBtn.setTarget_(self)
             cancelBtn.setAction_("closeSettings:")
             cancelBtn.setKeyEquivalent_("\x1b")
@@ -417,14 +419,14 @@ class AppDelegate(NSObject):
 
             saveBtn = NSButton.alloc().initWithFrame_(NSMakeRect(cw - 150, 16, 80, 28))
             saveBtn.setBezelStyle_(NSBezelStyleRounded)
-            saveBtn.setTitle_("Zapisz")
+            saveBtn.setTitle_(t("settings_save"))
             saveBtn.setTarget_(self)
             saveBtn.setAction_("saveSettings:")
             saveBtn.setKeyEquivalent_("\r")
             sv.addSubview_(saveBtn)
 
             y = 56
-            lbl = _label("Hasło SMTP:", size=11)
+            lbl = _label(t("settings_smtp_pass"), size=11)
             lbl.setFrame_(NSMakeRect(p, y, 100, 14))
             sv.addSubview_(lbl)
             self._smtpPassField = _textfield("App Password", secure=True)
@@ -432,7 +434,7 @@ class AppDelegate(NSObject):
             sv.addSubview_(self._smtpPassField)
             y += 30
 
-            lbl2 = _label("Nadawca SMTP:", size=11)
+            lbl2 = _label(t("settings_smtp_email"), size=11)
             lbl2.setFrame_(NSMakeRect(p, y, 100, 14))
             sv.addSubview_(lbl2)
             self._smtpEmailField = _textfield("twoj@gmail.com")
@@ -440,7 +442,7 @@ class AppDelegate(NSObject):
             sv.addSubview_(self._smtpEmailField)
             y += 30
 
-            lbl3 = _label("E-mail Kindle:", size=11)
+            lbl3 = _label(t("settings_kindle_email"), size=11)
             lbl3.setFrame_(NSMakeRect(p, y, 100, 14))
             sv.addSubview_(lbl3)
             self._kindleEmailField = _textfield("nazwa@kindle.com")
@@ -448,7 +450,7 @@ class AppDelegate(NSObject):
             sv.addSubview_(self._kindleEmailField)
             y += 28
 
-            kindleSec = _label("KINDLE (SMTP)", size=11, bold=True, color=NSColor.secondaryLabelColor())
+            kindleSec = _label(t("settings_kindle_header"), size=11, bold=True, color=NSColor.secondaryLabelColor())
             kindleSec.setFrame_(NSMakeRect(p, y, cw, 14))
             sv.addSubview_(kindleSec)
             y += 24
@@ -458,7 +460,7 @@ class AppDelegate(NSObject):
             sv.addSubview_(sep2)
             y += 16
 
-            lbl4 = _label("Klucz API:", size=11)
+            lbl4 = _label(t("settings_api_key"), size=11)
             lbl4.setFrame_(NSMakeRect(p, y, 100, 14))
             sv.addSubview_(lbl4)
             self._apiKeyField = _textfield("sk-...", secure=True)
@@ -466,7 +468,7 @@ class AppDelegate(NSObject):
             sv.addSubview_(self._apiKeyField)
             y += 30
 
-            lbl5 = _label("Nazwa modelu:", size=11)
+            lbl5 = _label(t("settings_model"), size=11)
             lbl5.setFrame_(NSMakeRect(p, y, 100, 14))
             sv.addSubview_(lbl5)
             self._modelField = NSComboBox.alloc().initWithFrame_(NSMakeRect(p + 105, y - 2, cw - 105, 24))
@@ -474,29 +476,29 @@ class AppDelegate(NSObject):
             sv.addSubview_(self._modelField)
             y += 30
 
-            lbl6 = _label("Dostawca LLM:", size=11)
+            lbl6 = _label(t("settings_provider"), size=11)
             lbl6.setFrame_(NSMakeRect(p, y, 100, 14))
             sv.addSubview_(lbl6)
             self._providerPopup = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(p + 105, y - 4, cw - 105, 26), False)
             self._providerPopup.setTarget_(self)
             self._providerPopup.setAction_("providerChanged:")
-            for title, _ in PROVIDERS:
-                self._providerPopup.addItemWithTitle_(title)
+            for ptitle, _ in _providers():
+                self._providerPopup.addItemWithTitle_(ptitle)
             sv.addSubview_(self._providerPopup)
             y += 28
 
-            llmSec = _label("DOSTAWCA AI", size=11, bold=True, color=NSColor.secondaryLabelColor())
+            llmSec = _label(t("settings_llm_header"), size=11, bold=True, color=NSColor.secondaryLabelColor())
             llmSec.setFrame_(NSMakeRect(p, y, cw, 14))
             sv.addSubview_(llmSec)
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self._showAlert("Settings Build Error", str(e))
+            self._showAlert(t("error_prefix"), str(e))
 
     @objc.IBAction
     def openFileDialog_(self, sender):
         panel = NSOpenPanel.openPanel()
-        panel.setTitle_("Wybierz plik do konwersji")
+        panel.setTitle_(t("menu_open"))
         panel.setAllowedFileTypes_(["pdf", "epub", "md"])
         panel.setCanChooseDirectories_(False)
         panel.setAllowsMultipleSelection_(False)
@@ -516,7 +518,7 @@ class AppDelegate(NSObject):
             self._fileBadgeView.setHidden_(False)
             self._convertBtn.setEnabled_(True)
         except Exception as e:
-            self._showAlert("Błąd odczytu", str(e))
+            self._showAlert(t("error_prefix"), str(e))
 
     @objc.IBAction
     def removeFile_(self, sender):
@@ -534,7 +536,7 @@ class AppDelegate(NSObject):
     @objc.IBAction
     def providerChanged_(self, sender):
         idx = self._providerPopup.indexOfSelectedItem()
-        prov_key = PROVIDERS[idx][1]
+        prov_key = _providers()[idx][1]
         self._updateModelList(prov_key)
 
     @objc.python_method
@@ -549,9 +551,10 @@ class AppDelegate(NSObject):
         try:
             cfg = load_config()
             prov = cfg.get("llm_provider", "Brak")
-            idx = next((i for i, (_, v) in enumerate(PROVIDERS) if v == prov), 0)
+            provs = _providers()
+            idx = next((i for i, (_, v) in enumerate(provs) if v == prov), 0)
             self._providerPopup.selectItemAtIndex_(idx)
-            self._updateModelList(PROVIDERS[idx][1])
+            self._updateModelList(provs[idx][1])
             self._modelField.setStringValue_(cfg.get("model_name", ""))
             self._apiKeyField.setStringValue_(cfg.get("api_key", ""))
             self._kindleEmailField.setStringValue_(cfg.get("kindle_email", ""))
@@ -559,7 +562,7 @@ class AppDelegate(NSObject):
             self._smtpPassField.setStringValue_(cfg.get("smtp_pass", ""))
             NSApp.beginSheet_modalForWindow_modalDelegate_didEndSelector_contextInfo_(self._settingsWindow, self._window, None, None, None)
         except Exception as e:
-            self._showAlert("Błąd", str(e))
+            self._showAlert(t("error_prefix"), str(e))
 
     @objc.IBAction
     def closeSettings_(self, sender):
@@ -570,8 +573,9 @@ class AppDelegate(NSObject):
     def saveSettings_(self, sender):
         try:
             idx = self._providerPopup.indexOfSelectedItem()
+            provs = _providers()
             data = {
-                "llm_provider": PROVIDERS[idx][1],
+                "llm_provider": provs[idx][1],
                 "model_name": str(self._modelField.stringValue()),
                 "api_key": str(self._apiKeyField.stringValue()),
                 "kindle_email": str(self._kindleEmailField.stringValue()),
@@ -582,7 +586,7 @@ class AppDelegate(NSObject):
             NSApp.endSheet_(self._settingsWindow)
             self._settingsWindow.orderOut_(None)
         except Exception as e:
-            self._showAlert("Błąd zapisu", str(e))
+            self._showAlert(t("settings_save_error"), str(e))
 
     @objc.IBAction
     def startConversion_(self, sender):
@@ -590,11 +594,11 @@ class AppDelegate(NSObject):
             return
         self._converting = True
         self._convertBtn.setEnabled_(False)
-        self._convertBtn.setTitle_("\u23F3  Konwersja w toku\u2026")
+        self._convertBtn.setTitle_(t("converting_btn"))
         self._resultView.setHidden_(True)
         self._progressBar.setDoubleValue_(0)
         self._progressBar.setHidden_(False)
-        self._stageLabel.setStringValue_("Rozpoczynam...")
+        self._stageLabel.setStringValue_(t("starting"))
         self._stageLabel.setHidden_(False)
         self._logScroll.setHidden_(False)
         self._logText.setString_("")
@@ -666,22 +670,22 @@ class AppDelegate(NSObject):
         self._outputPath = output_path
         self._converting = False
         self._convertBtn.setEnabled_(True)
-        self._convertBtn.setTitle_("\U0001F680  Konwertuj")
+        self._convertBtn.setTitle_(t("convert_btn"))
         self._progressBar.setDoubleValue_(100)
-        self._stageLabel.setStringValue_("Gotowe!")
+        self._stageLabel.setStringValue_(t("done"))
         self._resultView.setHidden_(False)
-        self._appendLog(f"Gotowe! \u2192 {Path(output_path).name}")
+        self._appendLog(t("all_done", name=Path(output_path).name))
 
     @objc.python_method
     def _conversionError(self, error_msg):
         self._converting = False
         self._convertBtn.setEnabled_(True)
-        self._convertBtn.setTitle_("\U0001F680  Konwertuj")
+        self._convertBtn.setTitle_(t("convert_btn"))
         self._progressBar.setHidden_(True)
-        self._stageLabel.setStringValue_(f"Błąd: {error_msg}")
-        self._appendLog(f"BŁĄD: {error_msg}")
+        self._stageLabel.setStringValue_(f"{t('error_prefix')}: {error_msg}")
+        self._appendLog(f"{t('error_prefix')}: {error_msg}")
         alert = NSAlert.alloc().init()
-        alert.setMessageText_("Błąd konwersji")
+        alert.setMessageText_(t("error_title"))
         alert.setInformativeText_(str(error_msg)[:500])
         alert.setAlertStyle_(NSAlertStyleWarning)
         alert.runModal()
@@ -691,7 +695,7 @@ class AppDelegate(NSObject):
         if not self._outputPath: return
         src = Path(self._outputPath)
         panel = NSSavePanel.savePanel()
-        panel.setTitle_("Zapisz wynik")
+        panel.setTitle_(t("save_title"))
         panel.setNameFieldStringValue_(src.name)
         if panel.runModal() == NSModalResponseOK:
             dest = panel.URL().path()
@@ -716,18 +720,18 @@ class AppDelegate(NSObject):
                     s.starttls()
                     s.login(cfg["smtp_email"], cfg["smtp_pass"])
                     s.send_message(msg)
-                self._showAlert("Sukces", "Wysłano na Kindle! \U0001F4DA")
+                self._showAlert("✅", t("kindle_sent"))
                 return
             except Exception as e:
-                self._showAlert("Błąd wysyłki", str(e))
+                self._showAlert(t("kindle_error"), str(e))
                 return
 
         kindle = Path("/Volumes/Kindle/documents")
         if kindle.exists():
             shutil.copy2(str(src), kindle / src.name)
-            self._showAlert("Sukces", "Skopiowano na Kindle (USB)!")
+            self._showAlert("✅", t("kindle_sent"))
         else:
-            self._showAlert("Brak Kindle", "Kindle nie podłączony i brak konfiguracji e-mail w Ustawieniach.")
+            self._showAlert(t("kindle_error"), t("kindle_no_config"))
 
     @objc.python_method
     def _showAlert(self, title, msg):

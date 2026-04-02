@@ -500,6 +500,52 @@ STRINGS = {
     },
 
     # ═══════════════════════════════════════════════════════════════════
+    #  MENUS & MISC
+    # ═══════════════════════════════════════════════════════════════════
+    "menu_about": {
+        "pl": "O ReBook", "en": "About ReBook", "de": "Über ReBook",
+        "es": "Acerca de ReBook", "fr": "À propos de ReBook",
+        "ru": "О ReBook", "uk": "Про ReBook", "zh": "关于 ReBook",
+        "ja": "ReBookについて",
+    },
+    "menu_settings": {
+        "pl": "Ustawienia\u2026", "en": "Settings\u2026", "de": "Einstellungen\u2026",
+        "es": "Configuración\u2026", "fr": "Paramètres\u2026",
+        "ru": "Настройки\u2026", "uk": "Налаштування\u2026", "zh": "设置\u2026",
+        "ja": "設定\u2026",
+    },
+    "menu_quit": {
+        "pl": "Zamknij ReBook", "en": "Quit ReBook", "de": "ReBook beenden",
+        "es": "Salir de ReBook", "fr": "Quitter ReBook",
+        "ru": "Выйти из ReBook", "uk": "Вийти з ReBook", "zh": "退出 ReBook",
+        "ja": "ReBookを終了",
+    },
+    "menu_file": {
+        "pl": "Plik", "en": "File", "de": "Datei",
+        "es": "Archivo", "fr": "Fichier",
+        "ru": "Файл", "uk": "Файл", "zh": "文件", "ja": "ファイル",
+    },
+    "menu_open": {
+        "pl": "Otwórz\u2026", "en": "Open\u2026", "de": "Öffnen\u2026",
+        "es": "Abrir\u2026", "fr": "Ouvrir\u2026",
+        "ru": "Открыть\u2026", "uk": "Відкрити\u2026", "zh": "打开\u2026",
+        "ja": "開く\u2026",
+    },
+    "provider_none": {
+        "pl": "Brak (AI wyłączone)", "en": "None (AI disabled)",
+        "de": "Keiner (KI deaktiviert)", "es": "Ninguno (IA desactivada)",
+        "fr": "Aucun (IA désactivée)", "ru": "Нет (ИИ отключён)",
+        "uk": "Немає (ШІ вимкнено)", "zh": "无（AI已禁用）",
+        "ja": "なし（AI無効）",
+    },
+    "settings_llm_header": {
+        "pl": "DOSTAWCA AI", "en": "AI PROVIDER",
+        "de": "KI-ANBIETER", "es": "PROVEEDOR DE IA",
+        "fr": "FOURNISSEUR IA", "ru": "ПРОВАЙДЕР ИИ",
+        "uk": "ПРОВАЙДЕР ШІ", "zh": "AI提供商", "ja": "AIプロバイダー",
+    },
+
+    # ═══════════════════════════════════════════════════════════════════
     #  SETTINGS
     # ═══════════════════════════════════════════════════════════════════
     "settings_title": {
