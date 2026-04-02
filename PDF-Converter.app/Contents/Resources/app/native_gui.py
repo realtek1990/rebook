@@ -42,7 +42,7 @@ MODELS = {
     "zhipu": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
     "openai": ["gpt-5-preview", "gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "o1-mini"],
     "anthropic": ["claude-4.6-opus", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-    "gemini": ["gemini-3.1-pro", "gemini-3.0-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-pro-exp", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
+    "gemini": ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
     "zhipuai": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
     "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"]
 }
@@ -344,8 +344,10 @@ class AppDelegate(NSObject):
 
         self._progressBar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(PAD, top - 6, CW, 6))
         self._progressBar.setStyle_(NSProgressIndicatorBarStyle)
+        self._progressBar.setIndeterminate_(False)
         self._progressBar.setMinValue_(0)
         self._progressBar.setMaxValue_(100)
+        self._progressBar.setDoubleValue_(0)
         self._progressBar.setHidden_(True)
         cv.addSubview_(self._progressBar)
         top -= 14
@@ -599,8 +601,8 @@ class AppDelegate(NSObject):
 
         fmt_idx = self._formatCtrl.selectedSegment()
         fmt = FORMAT_KEYS[fmt_idx]
-        use_llm = self._aiCheck.state() == NSOnState
-        translate = self._translateCheck.state() == NSOnState
+        translate = bool(self._translateCheck.state())
+        use_llm = bool(self._aiCheck.state()) or translate
         lang_from = str(self._langFromField.stringValue()) if translate else ""
         lang_to = str(self._langToField.stringValue()) if translate else "polski"
 
@@ -643,7 +645,9 @@ class AppDelegate(NSObject):
         if stage == "ocr": total = pct * 0.5
         elif stage == "correction": total = 50 + pct * 0.4
         elif stage == "export": total = 90 + pct * 0.1
+        elif stage == "done": total = 100
         self._progressBar.setDoubleValue_(total)
+        self._progressBar.displayIfNeeded()
         self._stageLabel.setStringValue_(msg)
         self._appendLog(msg)
 

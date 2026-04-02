@@ -79,6 +79,9 @@ def convert_file(
         label = "Tłumaczenie" if use_translate else "Korekcja AI"
         report("correction", 0, f"{label} — inicjalizacja…")
 
+        if not corrector.is_api_available():
+            raise RuntimeError("⚠️ BRAK KLUCZA API!\nWejdź w Ustawienia (⚙️) u góry po prawej, wybierz dostawcę AI i wklej poprawny klucz swojego konta aby uruchomić tryb tłumaczenia/korekty.")
+
         def on_llm(cur, tot, msg):
             pct = int(cur / tot * 100) if tot else 0
             report("correction", pct, f"{label} ({cur}/{tot})")

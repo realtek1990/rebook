@@ -86,13 +86,33 @@ def process_mega_block(text: str, system_prompt: str, retries: int = 3) -> str:
                 ],
                 "temperature": 0.1,
                 "max_tokens": 16384,
-                "timeout": 600
+                "timeout": 120
             }
             if api_base:
                 kwargs["api_base"] = api_base
                 
             response = litellm.completion(**kwargs)
-            return response.choices[0].message.content.strip()
+            msg = response.choices[0].message
+            # Gemini 3+ uses thinking_blocks — content may be None
+            text_out = msg.content
+            if not text_out and hasattr(msg, 'thinking_blocks') and msg.thinking_blocks:
+                # Extract text from last thinking block
+                for tb in reversed(msg.thinking_blocks):
+                    raw = tb.get('thinking', '') if isinstance(tb, dict) else str(tb)
+                    # thinking field may be JSON like {"text": "..."}
+                    if raw.startswith('{'):
+                        try:
+                            import json as _json
+                            text_out = _json.loads(raw).get('text', raw)
+                        except Exception:
+                            text_out = raw
+                    else:
+                        text_out = raw
+                    if text_out:
+                        break
+            if not text_out:
+                return text  # fallback to original
+            return text_out.strip()
             
         except litellm.RateLimitError as e:
             if attempt < retries - 1:
@@ -188,7 +208,7 @@ def correct_markdown(
     done_count = 0
     mode_str = "Tłumaczenie" if use_translate else "Korekcja"
     
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=30) as executor:
         futures = {}
         for i, mega_group in enumerate(mega_blocks):
             group_text = []
@@ -212,32 +232,61 @@ def correct_markdown(
                 if progress_callback:
                     progress_callback(done_count, total, f"Zlecono do API paczkę numer {i+1}/{total}...")
                 
+        # Track which segments failed so we can retry them
+        failed_indices = []
         for future in as_completed(futures):
             i, original = futures[future]
             try:
                 result = future.result()
-                # INTEGRITY CHECK: if AI returned empty/garbage, keep original
-                if result and len(result.strip()) > 20:
+                # INTEGRITY CHECK: if AI returned empty/garbage, mark as failed
+                if result and len(result.strip()) > 20 and not result.strip().startswith('[BŁĄD'):
                     result_parts[i] = result
                 else:
-                    result_parts[i] = original
+                    failed_indices.append(i)
             except Exception as e:
-                result_parts[i] = original
+                failed_indices.append(i)
                 
             done_count += 1
             if progress_callback:
                 progress_callback(done_count, total, f"{mode_str} bloku {done_count}/{total} (~{len(original)//1000}K znaków)...")
 
+    # ═══ RETRY FAILED SEGMENTS ═══
+    # Instead of silently inserting untranslated text, retry failed segments
+    if failed_indices:
+        if progress_callback:
+            progress_callback(total, total, f"🔄 Ponawiam {len(failed_indices)} nieudanych segmentów...")
+        
+        for retry_round in range(3):
+            if not failed_indices:
+                break
+            still_failing = []
+            for i in failed_indices:
+                original_text = '\n'.join(b["content"] for b in mega_blocks[i])
+                if progress_callback:
+                    progress_callback(total, total, f"🔄 Ponowna próba {retry_round+1}/3 segmentu {i+1}...")
+                try:
+                    result = process_mega_block(original_text, system_prompt)
+                    if result and len(result.strip()) > 20 and not result.strip().startswith('[BŁĄD'):
+                        result_parts[i] = result
+                        if progress_callback:
+                            progress_callback(total, total, f"✅ Segment {i+1} odzyskany w próbie {retry_round+1}!")
+                    else:
+                        still_failing.append(i)
+                except Exception:
+                    still_failing.append(i)
+                    time.sleep(3)
+            failed_indices = still_failing
+
     # ═══ FINAL INTEGRITY CHECK ═══
     # Ensure EVERY segment has content — no gaps allowed
     missing = [i for i, p in enumerate(result_parts) if p is None]
     if missing:
-        # Recover missing segments from original mega-blocks
+        # Last resort: recover missing segments from original mega-blocks
         for i in missing:
             original_text = '\n'.join(b["content"] for b in mega_blocks[i])
             result_parts[i] = original_text
         if progress_callback:
             progress_callback(total, total,
-                f"⚠️ UWAGA: {len(missing)} brakujących segmentów odzyskano z oryginału")
+                f"⚠️ UWAGA: {len(missing)} segmentów nie udało się przetłumaczyć mimo ponowień")
 
     return '\n'.join(result_parts)
