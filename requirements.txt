@@ -1,5 +1,12 @@
+# ─── ReBook Core (lekkie, ~100 MB) ───
+pyobjc-framework-Cocoa
 markdown
 EbookLib
 beautifulsoup4
 markdownify
-python-dotenv
+litellm
+PyMuPDF
+
+# ─── Marker OCR (opcjonalnie, ~1 GB) ───
+# Odkomentuj poniższe, jeśli chcesz OCR z PDF:
+# marker-pdf
