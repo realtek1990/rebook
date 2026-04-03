@@ -6,6 +6,10 @@ markdownify
 litellm
 PyMuPDF
 
+# ─── Image Translation (Nano Banana 2 / Gemini) ───
+google-genai
+Pillow
+
 # ─── macOS only (installed automatically) ───
 # pyobjc-framework-Cocoa
 

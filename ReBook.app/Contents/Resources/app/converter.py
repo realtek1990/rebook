@@ -15,6 +15,7 @@ import markdown as md_lib
 from ebooklib import epub
 
 import corrector
+import image_translator
 
 WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
 MARKER_BIN = Path(sys.prefix) / "bin" / "marker_single"
@@ -27,6 +28,7 @@ def convert_file(
     output_format: str = "epub",
     use_llm: bool = False,
     use_translate: bool = False,
+    translate_images: bool = False,
     lang_from: str = "",
     lang_to: str = "polski",
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
@@ -113,6 +115,24 @@ def convert_file(
         )
         report("verification", 100, "✅ Weryfikacja zakończona")
 
+    # ── Stage 2.75: Image Translation (Nano Banana 2) ────────────────────
+    translated_images = {}
+    if translate_images and use_translate and collected_images:
+        report("images", 0, "🎨 Tłumaczenie ilustracji…")
+
+        def on_img(cur, tot, msg):
+            pct = int(cur / tot * 100) if tot else 0
+            report("images", pct, msg)
+
+        translated_images = image_translator.process_book_images(
+            images=collected_images,
+            lang_from=lang_from or "angielski",
+            lang_to=lang_to,
+            progress_callback=on_img,
+        )
+        report("images", 100,
+            f"✅ Przetłumaczono {len(translated_images)}/{len(collected_images)} ilustracji")
+
     # ── Stage 3: Export ───────────────────────────────────────────────────
     report("export", 50, f"Eksport → {output_format.upper()}…")
     basename = src.stem
@@ -125,13 +145,30 @@ def convert_file(
         book.set_language("pl")
         _extract_cover(src, book)
         # Embed all collected images into the EPUB
+        # Both original and translated versions (translated in images_translated/ subfolder)
         for img_name, img_data in collected_images.items():
             mime = "image/png" if img_name.endswith(".png") else "image/jpeg"
+            # Original image
             img_item = epub.EpubImage()
             img_item.file_name = f"images/{img_name}"
             img_item.media_type = mime
             img_item.content = img_data
             book.add_item(img_item)
+            # Translated image (if available)
+            if img_name in translated_images:
+                tr_item = epub.EpubImage()
+                tr_item.file_name = f"images_translated/{img_name}"
+                tr_item.media_type = "image/png"  # Nano Banana outputs PNG
+                tr_item.content = translated_images[img_name]
+                book.add_item(tr_item)
+        # If images were translated, update markdown references
+        # to use translated versions (originals remain accessible)
+        if translated_images:
+            for img_name in translated_images:
+                md_text = md_text.replace(
+                    f"images/{img_name}",
+                    f"images_translated/{img_name}"
+                )
         _create_epub(md_text, str(out), basename, book)
 
     elif output_format == "html":
