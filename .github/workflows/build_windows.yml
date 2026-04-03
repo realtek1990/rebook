@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "windows/**"
+      - ".github/workflows/build_windows.yml"
       - "ReBook.app/Contents/Resources/app/corrector.py"
       - "ReBook.app/Contents/Resources/app/converter.py"
       - "ReBook.app/Contents/Resources/app/image_translator.py"
