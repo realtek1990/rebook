@@ -111,21 +111,21 @@ def process_mega_block(text: str, system_prompt: str, retries: int = 3) -> str:
                     if text_out:
                         break
             if not text_out:
-                return text  # fallback to original
+                raise RuntimeError("AI returned empty response")
             return text_out.strip()
             
         except litellm.RateLimitError as e:
             if attempt < retries - 1:
                 time.sleep(10 * (attempt + 1))
                 continue
-            return f"\n\n[BŁĄD Z.AI - RATE LIMIT (Zbyt dużo zapytań!)]: {e}\n\n" + text
+            raise  # propagate — caller must retry
         except Exception as e:
             if attempt < retries - 1:
                 time.sleep(5)
                 continue
-            return f"\n\n[BŁĄD Z.AI - INNY]: {e}\n\n" + text
+            raise  # propagate — caller must retry
             
-    return text
+    raise RuntimeError("All retries exhausted in process_mega_block")
 
 
 def split_into_blocks(markdown: str) -> list[dict]:
@@ -250,44 +250,59 @@ def correct_markdown(
             if progress_callback:
                 progress_callback(done_count, total, f"{mode_str} bloku {done_count}/{total} (~{len(original)//1000}K znaków)...")
 
-    # ═══ RETRY FAILED SEGMENTS ═══
-    # Instead of silently inserting untranslated text, retry failed segments
+    # ═══ RETRY FAILED SEGMENTS (AGGRESSIVE — 10 ROUNDS) ═══
+    # ZERO TOLERANCE: every segment MUST be translated. No silent fallbacks.
+    MAX_RETRY_ROUNDS = 10
     if failed_indices:
         if progress_callback:
             progress_callback(total, total, f"🔄 Ponawiam {len(failed_indices)} nieudanych segmentów...")
         
-        for retry_round in range(3):
+        for retry_round in range(MAX_RETRY_ROUNDS):
             if not failed_indices:
                 break
             still_failing = []
+            # Exponential backoff between rounds
+            if retry_round > 0:
+                wait = min(30, 3 * (2 ** retry_round))
+                if progress_callback:
+                    progress_callback(total, total, f"⏳ Czekam {wait}s przed rundą {retry_round+1}...")
+                time.sleep(wait)
+
             for i in failed_indices:
                 original_text = '\n'.join(b["content"] for b in mega_blocks[i])
                 if progress_callback:
-                    progress_callback(total, total, f"🔄 Ponowna próba {retry_round+1}/3 segmentu {i+1}...")
+                    progress_callback(total, total, f"🔄 Ponowna próba {retry_round+1}/{MAX_RETRY_ROUNDS} segmentu {i+1}...")
                 try:
                     result = process_mega_block(original_text, system_prompt)
-                    if result and len(result.strip()) > 20 and not result.strip().startswith('[BŁĄD'):
+                    if result and len(result.strip()) > 20:
                         result_parts[i] = result
                         if progress_callback:
                             progress_callback(total, total, f"✅ Segment {i+1} odzyskany w próbie {retry_round+1}!")
                     else:
                         still_failing.append(i)
-                except Exception:
+                except Exception as e:
                     still_failing.append(i)
-                    time.sleep(3)
+                    if progress_callback:
+                        progress_callback(total, total, f"❌ Segment {i+1} — błąd: {e}")
             failed_indices = still_failing
 
-    # ═══ FINAL INTEGRITY CHECK ═══
-    # Ensure EVERY segment has content — no gaps allowed
+    # ═══ FINAL INTEGRITY CHECK — HARD FAIL ═══
+    # ZERO TOLERANCE: if ANY segment is missing, ABORT the entire conversion.
+    # We NEVER silently insert untranslated text into the output.
     missing = [i for i, p in enumerate(result_parts) if p is None]
     if missing:
-        # Last resort: recover missing segments from original mega-blocks
-        for i in missing:
-            original_text = '\n'.join(b["content"] for b in mega_blocks[i])
-            result_parts[i] = original_text
-        if progress_callback:
-            progress_callback(total, total,
-                f"⚠️ UWAGA: {len(missing)} segmentów nie udało się przetłumaczyć mimo ponowień")
+        seg_list = ', '.join(str(i+1) for i in missing[:10])
+        more = f' (i {len(missing)-10} więcej)' if len(missing) > 10 else ''
+        raise RuntimeError(
+            f"❌ BŁĄD KRYTYCZNY: {len(missing)} segmentów nie udało się przetłumaczyć "
+            f"mimo {MAX_RETRY_ROUNDS} prób!\n"
+            f"Segmenty: {seg_list}{more}\n\n"
+            f"Możliwe przyczyny:\n"
+            f"• Problem z API (limit zapytań, timeout)\n"
+            f"• Zbyt duże bloki tekstu dla wybranego modelu\n"
+            f"• Niestabilne połączenie internetowe\n\n"
+            f"Spróbuj ponownie lub zmień model AI w Ustawieniach."
+        )
 
     return '\n'.join(result_parts)
 
@@ -428,7 +443,9 @@ ZWRÓĆ TYLKO POPRAWIONY TEKST TŁUMACZENIA."""
 
 Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). Pamiętaj o punktach 1-4 z instrukcji."""
 
-        for attempt in range(3):
+        MAX_VERIFY_RETRIES = 10
+        success = False
+        for attempt in range(MAX_VERIFY_RETRIES):
             try:
                 kwargs = {
                     "model": model_name,
@@ -448,20 +465,25 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
                 result = response.choices[0].message.content
                 if result and len(result.strip()) > 50:
                     verified_parts.append(result.strip())
+                    success = True
                     break
                 else:
-                    # Fallback to original translation
-                    verified_parts.append(trans_chunk)
-                    break
+                    if progress_callback:
+                        progress_callback(idx, total_chunks,
+                            f"⚠️ Pusta odpowiedź, próba {attempt+1}/{MAX_VERIFY_RETRIES}...")
+                    time.sleep(3 * (attempt + 1))
             except Exception as e:
-                if attempt < 2:
-                    time.sleep(5 * (attempt + 1))
-                    continue
-                # On final failure, keep original translation
-                verified_parts.append(trans_chunk)
                 if progress_callback:
-                    progress_callback(idx + 1, total_chunks,
-                        f"⚠️ Weryfikacja segmentu {idx+1} nie powiodła się: {e}")
+                    progress_callback(idx, total_chunks,
+                        f"❌ Błąd weryfikacji (próba {attempt+1}/{MAX_VERIFY_RETRIES}): {e}")
+                time.sleep(5 * (attempt + 1))
+
+        if not success:
+            raise RuntimeError(
+                f"❌ BŁĄD KRYTYCZNY: Weryfikacja segmentu {idx+1}/{total_chunks} "
+                f"nie powiodła się mimo {MAX_VERIFY_RETRIES} prób!\n\n"
+                f"Spróbuj ponownie lub zmień model AI w Ustawieniach."
+            )
 
         if progress_callback:
             progress_callback(idx + 1, total_chunks,
