@@ -11,6 +11,9 @@ on:
       - "ReBook.app/Contents/Resources/app/image_translator.py"
       - "ReBook.app/Contents/Resources/app/i18n.py"
       - "assets/**"
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 jobs:
@@ -26,10 +29,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       # ── Sync backend ──────────────────────────────────────────────────────────
-      - name: Sync backend files to windows/dist
+      - name: Sync backend files
         shell: bash
         run: |
           mkdir -p windows/dist
@@ -40,19 +42,17 @@ jobs:
           cp ReBook.app/Contents/Resources/app/manual_convert.py windows/dist/
           cp windows/rebook_win.py windows/dist/
           cp windows/requirements_win.txt windows/dist/requirements.txt
-          # Copy icon to windows/ so installer.iss can find it
-          cp assets/icon.ico windows/icon.ico
-          echo "✅ Synced $(ls windows/dist | wc -l) files"
+          echo "✅ Backend synced"
 
-      # ── Install deps ──────────────────────────────────────────────────────────
+      # ── Install Python deps ───────────────────────────────────────────────────
       - name: Install Python dependencies
         shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller customtkinter
           pip install ebooklib markdown beautifulsoup4 markdownify Pillow PyMuPDF
-          pip install litellm || echo "litellm partial, continuing"
-          pip install google-genai || echo "google-genai partial, continuing"
+          pip install litellm || echo "litellm partial"
+          pip install google-genai || echo "google-genai partial"
 
       # ── Build EXE ─────────────────────────────────────────────────────────────
       - name: Build ReBook.exe with PyInstaller
@@ -78,53 +78,47 @@ jobs:
             --hidden-import markdownify ^
             --hidden-import PIL ^
             rebook_win.py
-          echo "=== PyInstaller output ==="
-          dir dist\
 
-      # Copy built EXE to windows/ for Inno Setup
-      - name: Stage EXE for Inno Setup
+      - name: Verify and rename EXE
         shell: bash
         run: |
-          cp windows/dist/dist/ReBook.exe windows/dist/ReBook.exe
-          ls -lh windows/dist/ReBook.exe
+          ls -lh windows/dist/dist/
+          mkdir -p dist_out
+          cp windows/dist/dist/ReBook.exe dist_out/ReBook-2.2.1-Windows.exe
+          ls -lh dist_out/
 
-      # ── Inno Setup (via Chocolatey — pre-installed on Windows runners) ────────
-      - name: Install Inno Setup
-        shell: powershell
-        run: |
-          choco install innosetup --yes --no-progress
-          Write-Host "✅ Inno Setup installed via Chocolatey"
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /? 2>&1 | Select-Object -First 2
-
-      - name: Build Windows Installer (Inno Setup)
-        shell: cmd
-        working-directory: windows
-        run: |
-          echo === Files in windows\dist\ ===
-          dir dist\
-          echo === Running ISCC ===
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
-          echo === Output dir ===
-          dir output\ || echo (no output dir)
-
-      # ── Upload artifact ───────────────────────────────────────────────────────
-      - name: Upload installer as GitHub Artifact
+      # ── Upload as artifact (always) ───────────────────────────────────────────
+      - name: Upload EXE as GitHub Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ReBook-Windows-Installer
-          path: windows/output/*.exe
+          name: ReBook-Windows-exe
+          path: dist_out/ReBook-2.2.1-Windows.exe
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
-      # ── Release (only on version tags like v2.2.1) ────────────────────────────
+      # ── Publish to GitHub Release (on tag) ────────────────────────────────────
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            windows/output/*.exe
-            ReBook.dmg
+          files: dist_out/ReBook-2.2.1-Windows.exe
           generate_release_notes: true
           fail_on_unmatched_files: false
+          body: |
+            ## ReBook v2.2.1 — Windows
+
+            ### Instalacja
+            1. Pobierz `ReBook-2.2.1-Windows.exe`
+            2. Uruchom — przy pierwszym uruchomieniu zainstaluje wymagane biblioteki
+            3. Skonfiguruj klucz API w Ustawieniach (⚙️)
+
+            ### macOS
+            Pobierz `ReBook.dmg` poniżej.
+
+            ### Co nowego
+            - Zero-tolerance pipeline: auto sub-chunking, quality gate, deep cluster scanner
+            - Automatyczna deduplikacja rozdziałów
+            - Adaptive timeout (120s → 600s)
+            - 4 krytyczne bugfixy w silniku tłumaczenia
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
