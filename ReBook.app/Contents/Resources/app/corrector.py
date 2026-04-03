@@ -28,11 +28,16 @@ def get_system_prompt(use_translate: bool, lang_to: str, lang_from: str) -> str:
 
 Zasady:
 1. Tekst ma być przetłumaczony w sposób naturalny dla czytelnika z zachowaniem najwyższej poprawności oraz oryginalnego kontekstu wyjściowego autora.
-2. Przetłumacz ABSOLUTNIE WSZYSTKO na język {to} — w tym tytuły, nagłówki, cytaty, podpisy i wszelkie fragmenty w języku obcym. Nie zostawiaj niczego po angielsku.
+2. Przetłumacz ABSOLUTNIE WSZYSTKO na język {to} — w tym nagłówki, cytaty, podpisy, dialogi i wszelkie fragmenty w języku obcym. NIE zostawiaj niczego w oryginalnym języku. Jedyny wyjątek: tytuły książek w cudzysłowach i nazwy własne organizacji.
 3. ZACHOWAJ FORMATOWANIE Markdown (nagłówki #, pogrubienia **, listy -, cytaty >). Nie zmieniaj ich składni.
-4. NAGŁÓWKI (linie zaczynające się od #): Nagłówek to TYLKO krótki tytuł rozdziału lub sekcji (max 1-2 zdania). Jeśli widzisz że po znaku # znajduje się długi akapit (ponad 2 zdania), zamień go na zwykły tekst pogrubiony (**tekst**) — to ewidentny błąd formatowania z OCR.
-5. WYCZYŚĆ ARTEFAKTY: Jeśli w tekście występują śmieci techniczne takie jak: deklaracje XML (<?xml ...?>), znaczniki HTML (<div>, <span>, itp.), kody DOCTYPE, encje HTML (&amp; &nbsp;) — USUŃ JE i zostaw tylko czysty tekst.
-6. Zwróć TYLKO wynik tłumaczenia. Nie dołączaj swoich notatek, wstępów ani komentarzy typu „Oto tłumaczenie:" czy „Zachowałem formatowanie".
+4. NAGŁÓWKI ROZDZIAŁÓW: Jeśli tekst zawiera nagłówki typu "Chapter X — Title", "Introduction", "Foreword", "Preface", "Appendix" — przetłumacz je i oznacz jako nagłówki Markdown:
+   - "Chapter 1—My Life" → "# Rozdział 1 — Moje życie"
+   - "Introduction" → "# Wprowadzenie"
+   - "Foreword" → "# Przedmowa"
+5. NIE ŁĄCZ i NIE POMIJAJ akapitów. Każdy akapit z oryginału MUSI pojawić się w tłumaczeniu. Nie skracaj tekstu.
+6. NAGŁÓWKI (linie zaczynające się od #): Nagłówek to TYLKO krótki tytuł rozdziału lub sekcji (max 1-2 zdania). Jeśli widzisz że po znaku # znajduje się długi akapit (ponad 2 zdania), zamień go na zwykły tekst pogrubiony (**tekst**) — to ewidentny błąd formatowania z OCR.
+7. WYCZYŚĆ ARTEFAKTY: Jeśli w tekście występują śmieci techniczne takie jak: deklaracje XML (<?xml ...?>), znaczniki HTML (<div>, <span>, itp.), kody DOCTYPE, encje HTML (&amp; &nbsp;) — USUŃ JE i zostaw tylko czysty tekst.
+8. Zwróć TYLKO wynik tłumaczenia. Nie dołączaj swoich notatek, wstępów ani komentarzy typu „Oto tłumaczenie:" czy „Zachowałem formatowanie".
 """
     else:
         return """Jesteś ekspertem od korekty tekstu polskiego z OCR. Twoim jedynym zadaniem jest poprawienie błędów powstałych podczas skanowania i rozpoznawania tekstu (OCR).
@@ -400,18 +405,27 @@ Otrzymujesz TEKST ORYGINALNY (w języku {lang_from or 'źródłowym'}) oraz TŁU
 
 Twoim zadaniem jest:
 
-1. **ZNAJDŹ BRAKUJĄCE SEGMENTY**: Porównaj oryginał z tłumaczeniem — jeśli jakikolwiek akapit, zdanie lub fragment z oryginału CAŁKOWICIE BRAKUJE w tłumaczeniu, wstaw go przetłumaczony w odpowiednie miejsce.
+1. **ZNAJDŹ BRAKUJĄCE SEGMENTY**: Porównaj oryginał z tłumaczeniem akapit po akapicie — jeśli jakikolwiek akapit, zdanie lub fragment z oryginału CAŁKOWICIE BRAKUJE w tłumaczeniu, wstaw go przetłumaczony w odpowiednie miejsce. Szczególnie sprawdź:
+   - Nagłówki rozdziałów (np. "Chapter 1", "Introduction", "Foreword", "Appendix") — MUSZĄ być przetłumaczone (np. "Rozdział 1", "Wprowadzenie", "Przedmowa", "Aneks") i sformatowane jako nagłówki Markdown (#).
+   - Cytaty i podpisy — nie mogą być pominięte.
+   - Pierwsze i ostatnie zdania każdego rozdziału — najczęściej giną.
 
-2. **ZNAJDŹ NIEPRZETŁUMACZONE FRAGMENTY**: Jeśli w tłumaczeniu nadal znajdują się zdania lub fragmenty w języku {lang_from or 'źródłowym'} (nieprzetłumaczone), PRZETŁUMACZ je na {lang_to}.
+2. **ZNAJDŹ NIEPRZETŁUMACZONE FRAGMENTY**: Jeśli w tłumaczeniu nadal znajdują się zdania lub fragmenty w języku {lang_from or 'źródłowym'} (nieprzetłumaczone), PRZETŁUMACZ je na {lang_to}. Wyjątek: tytuły książek w cudzysłowach i nazwy organizacji mogą pozostać w oryginale.
 
 3. **ZNAJDŹ BŁĘDY I ARTEFAKTY**: Jeśli w tekście tłumaczenia występują:
-   - Losowe cyfry lub ciągi znaków bez sensu
+   - Losowe cyfry lub ciągi znaków bez sensu (nie będące datami, ISBN, numerami stron)
    - Śmieci z OCR (np. "1 2 3", "###", dziwne symbole)
-   - Powtórzenia zdań
-   - Niedokończone zdania
+   - Powtórzenia zdań lub całych akapitów
+   - Niedokończone zdania (ucięte w połowie)
+   - Zdania które tracą sens lub są bezsensowne
    → NAPRAW je lub USUŃ jeśli są śmieciami.
 
-4. **ZACHOWAJ STRUKTURĘ**: Zachowaj formatowanie Markdown (nagłówki #, pogrubienia **, listy -, cytaty >, obrazy ![...](...)).
+4. **ZACHOWAJ I WZMOCNIJ STRUKTURĘ**:
+   - Zachowaj formatowanie Markdown (nagłówki #, pogrubienia **, listy -, cytaty >, obrazy ![...](...)).
+   - Każdy nagłówek rozdziału z oryginału MUSI pojawić się w tłumaczeniu jako linia z # (np. "# Rozdział 1 — Moja praca jako ekspert od sekt").
+   - Każda sekcja "Foreword", "Preface", "Introduction", "Appendix" MUSI mieć swój nagłówek #.
+
+5. **SPRAWDŹ CIĄGŁOŚĆ**: Upewnij się, że tekst płynie naturalnie — brak nagłych przeskoków tematycznych, brak powtórzeń, brak "dziur" w narracji.
 
 WAŻNE:
 - Zwróć KOMPLETNY, POPRAWIONY tekst tłumaczenia.
