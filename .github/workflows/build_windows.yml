@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Windows: Build ReBook.exe
+  # ═══════════════════════════════════════════════════════════════════════════
   build-windows:
     runs-on: windows-latest
     timeout-minutes: 30
@@ -71,35 +74,78 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
-          cp windows/dist/dist/ReBook.exe out/ReBook-2.2.1-Windows.exe
+          cp windows/dist/dist/ReBook.exe out/ReBook-Windows.exe
           ls -lh out/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ReBook-Windows-exe
-          path: out/ReBook-2.2.1-Windows.exe
+          path: out/ReBook-Windows.exe
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish to GitHub Release
+      - name: Publish Windows EXE to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: ncipollo/release-action@v1
         with:
-          artifacts: out/ReBook-2.2.1-Windows.exe
+          artifacts: out/ReBook-Windows.exe
+          allowUpdates: true
+          generateReleaseNotes: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # macOS: Build ReBook.dmg
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ebooklib markdown beautifulsoup4 markdownify Pillow PyMuPDF
+          pip install customtkinter litellm || true
+
+      - name: Build ReBook.dmg
+        run: |
+          chmod +x build_dmg.sh
+          ./build_dmg.sh
+          ls -lh ReBook.dmg
+
+      - name: Publish macOS DMG to GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: ReBook.dmg
           allowUpdates: true
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
             ## ReBook v2.2.1
 
-            ### Windows
-            Pobierz `ReBook-2.2.1-Windows.exe` i uruchom bezpośrednio. Przy pierwszym starcie zainstaluje wymagane biblioteki.
+            ### 🍎 macOS
+            Pobierz `ReBook.dmg`, zamontuj i przeciągnij **ReBook.app** do folderu Aplikacje.
 
-            ### macOS
-            Pobierz `ReBook.dmg`.
+            ### 🪟 Windows
+            Pobierz `ReBook-Windows.exe` i uruchom. Przy pierwszym starcie zainstaluje wymagane biblioteki.
 
-            ### Co nowego
-            - Zero-tolerance pipeline: auto sub-chunking, quality gate, deep cluster scanner
+            > Wymagane: klucz API (Gemini, OpenAI, Mistral lub inny) — skonfiguruj w Ustawieniach ⚙️
+
+            ### Co nowego w v2.2.1
+            - Auto sub-chunking nieudanych segmentów tłumaczenia
+            - Quality Gate: automatyczne re-tłumaczenie bloków z >30% języka źródłowego
+            - Deep English Cluster Scanner (po weryfikacji)
             - Automatyczna deduplikacja duplikatów rozdziałów
-            - 4 krytyczne bugfixy silnika tłumaczenia
+            - 4 krytyczne bugfixy silnika
