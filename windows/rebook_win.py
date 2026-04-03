@@ -306,6 +306,14 @@ class ReBookApp:
         ctk.CTkCheckBox(f, text=t("translate_check"), variable=self._translate_var,
                         command=self._toggle_translate).pack(anchor="w", padx=28, pady=4)
 
+        # Translate images (hidden, shown when translate enabled)
+        self._translate_img_var = ctk.BooleanVar(value=False)
+        self._translate_img_check = ctk.CTkCheckBox(
+            f, text=t("translate_images_check"),
+            variable=self._translate_img_var,
+            font=ctk.CTkFont(size=11),
+        )
+
         # Language fields (hidden)
         self._lang_frame = ctk.CTkFrame(f, fg_color="transparent")
         r1 = ctk.CTkFrame(self._lang_frame, fg_color="transparent")
@@ -391,8 +399,11 @@ class ReBookApp:
     def _toggle_translate(self):
         if self._translate_var.get():
             self._lang_frame.pack(fill="x", padx=28, pady=4)
+            self._translate_img_check.pack(anchor="w", padx=44, pady=2)
         else:
             self._lang_frame.pack_forget()
+            self._translate_img_check.pack_forget()
+            self._translate_img_var.set(False)
 
     # ── Settings ──
 
@@ -502,19 +513,20 @@ class ReBookApp:
         fmt_idx = FORMATS.index(self._format_var.get())
         fmt = FORMAT_KEYS[fmt_idx]
         translate = self._translate_var.get()
+        translate_images = self._translate_img_var.get() if translate else False
         use_llm = self._ai_var.get() or translate
         lang_from = self._lang_from.get() if translate else ""
         lang_to = self._lang_to.get() if translate else "polski"
 
-        args = (str(self._selected_file), fmt, use_llm, translate, lang_from, lang_to)
+        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, lang_from, lang_to)
         threading.Thread(target=self._run_conversion, args=args, daemon=True).start()
 
-    def _run_conversion(self, path, fmt, use_llm, translate, lang_from, lang_to):
+    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to):
         # Run under venv python
         try:
             import converter
             result = converter.convert_file(
-                path, fmt, use_llm, translate, lang_from, lang_to,
+                path, fmt, use_llm, translate, translate_images, lang_from, lang_to,
                 progress_callback=self._on_progress,
             )
             self._ui_queue.put(("done", result))
@@ -539,8 +551,10 @@ class ReBookApp:
     def _update_progress(self, info):
         stage, pct, msg = info["stage"], info["pct"], info["msg"]
         total = pct / 100
-        if stage == "ocr": total = pct * 0.005
-        elif stage == "correction": total = 0.5 + pct * 0.004
+        if stage == "ocr": total = pct * 0.004
+        elif stage == "correction": total = 0.4 + pct * 0.003
+        elif stage == "verification": total = 0.7 + pct * 0.001
+        elif stage == "images": total = 0.8 + pct * 0.001
         elif stage == "export": total = 0.9 + pct * 0.001
         elif stage == "done": total = 1.0
         self._progress_bar.set(min(total, 1.0))

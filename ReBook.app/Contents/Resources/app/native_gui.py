@@ -313,7 +313,15 @@ class AppDelegate(NSObject):
         self._translateCheck.setTarget_(self)
         self._translateCheck.setAction_("toggleTranslate:")
         cv.addSubview_(self._translateCheck)
-        top -= 30
+        top -= 28
+
+        self._translateImgCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD + 20, top - 22, CW - 20, 20))
+        self._translateImgCheck.setButtonType_(NSSwitchButton)
+        self._translateImgCheck.setTitle_(t("translate_images_check"))
+        self._translateImgCheck.setFont_(NSFont.systemFontOfSize_(11))
+        self._translateImgCheck.setHidden_(True)
+        cv.addSubview_(self._translateImgCheck)
+        top -= 26
 
         self._langView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 60, CW, 56))
         self._langView.setHidden_(True)
@@ -532,6 +540,9 @@ class AppDelegate(NSObject):
     def toggleTranslate_(self, sender):
         show = self._translateCheck.state() == NSOnState
         self._langView.setHidden_(not show)
+        self._translateImgCheck.setHidden_(not show)
+        if not show:
+            self._translateImgCheck.setState_(NSOffState)
 
     @objc.IBAction
     def providerChanged_(self, sender):
@@ -606,19 +617,20 @@ class AppDelegate(NSObject):
         fmt_idx = self._formatCtrl.selectedSegment()
         fmt = FORMAT_KEYS[fmt_idx]
         translate = bool(self._translateCheck.state())
+        translate_images = bool(self._translateImgCheck.state()) if translate else False
         use_llm = bool(self._aiCheck.state()) or translate
         lang_from = str(self._langFromField.stringValue()) if translate else ""
         lang_to = str(self._langToField.stringValue()) if translate else "polski"
 
-        args = (str(self._selectedFile), fmt, use_llm, translate, lang_from, lang_to)
+        args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to)
         threading.Thread(target=self._runConversion, args=args, daemon=True).start()
 
     @objc.python_method
-    def _runConversion(self, path, fmt, use_llm, translate, lang_from, lang_to):
+    def _runConversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to):
         import converter
         try:
             result = converter.convert_file(
-                path, fmt, use_llm, translate, lang_from, lang_to,
+                path, fmt, use_llm, translate, translate_images, lang_from, lang_to,
                 progress_callback=self._onProgress,
             )
             self._scheduleUI("_conversionDone", result)
@@ -646,8 +658,10 @@ class AppDelegate(NSObject):
     def _updateProgress(self, info):
         stage, pct, msg = info["stage"], info["pct"], info["msg"]
         total = 100
-        if stage == "ocr": total = pct * 0.5
-        elif stage == "correction": total = 50 + pct * 0.4
+        if stage == "ocr": total = pct * 0.4
+        elif stage == "correction": total = 40 + pct * 0.3
+        elif stage == "verification": total = 70 + pct * 0.1
+        elif stage == "images": total = 80 + pct * 0.1
         elif stage == "export": total = 90 + pct * 0.1
         elif stage == "done": total = 100
         self._progressBar.setDoubleValue_(total)

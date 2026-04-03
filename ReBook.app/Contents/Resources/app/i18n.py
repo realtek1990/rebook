@@ -449,6 +449,17 @@ STRINGS = {
         "zh": "翻译模式（替代校正）",
         "ja": "翻訳モード（校正の代わり）",
     },
+    "translate_images_check": {
+        "pl": "🎨 Tłumacz także ilustracje (Nano Banana 2, wymaga Gemini)",
+        "en": "🎨 Also translate images (Nano Banana 2, requires Gemini)",
+        "de": "🎨 Auch Bilder übersetzen (Nano Banana 2, erfordert Gemini)",
+        "es": "🎨 Traducir también imágenes (Nano Banana 2, requiere Gemini)",
+        "fr": "🎨 Traduire aussi les images (Nano Banana 2, nécessite Gemini)",
+        "uk": "🎨 Також перекладати ілюстрації (Nano Banana 2, потрібен Gemini)",
+        "ru": "🎨 Также переводить иллюстрации (Nano Banana 2, нужен Gemini)",
+        "zh": "🎨 同时翻译图片（Nano Banana 2，需要 Gemini）",
+        "ja": "🎨 画像も翻訳する（Nano Banana 2、Gemini必須）",
+    },
     "lang_from_label": {
         "pl": "Język źródłowy:", "en": "Source language:",
         "de": "Quellsprache:", "es": "Idioma origen:",
