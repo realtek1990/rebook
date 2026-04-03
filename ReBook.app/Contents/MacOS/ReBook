@@ -75,6 +75,7 @@ CORE_PACKAGES = [
     "pyobjc-framework-Cocoa",
     "litellm", "markdown", "ebooklib", "pymupdf",
     "beautifulsoup4", "markdownify",
+    "google-genai", "Pillow",
 ]
 
 MARKER_PACKAGES = [
