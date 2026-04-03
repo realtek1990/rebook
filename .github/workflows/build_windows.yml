@@ -87,16 +87,13 @@ jobs:
           cp windows/dist/dist/ReBook.exe windows/dist/ReBook.exe
           ls -lh windows/dist/ReBook.exe
 
-      # ── Inno Setup ────────────────────────────────────────────────────────────
+      # ── Inno Setup (via Chocolatey — pre-installed on Windows runners) ────────
       - name: Install Inno Setup
         shell: powershell
         run: |
-          $url = "https://files.jrsoftware.org/is/6/innosetup-6.3.3.exe"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\innosetup.exe"
-          Start-Process -FilePath "$env:TEMP\innosetup.exe" `
-            -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
-          Write-Host "✅ Inno Setup installed"
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /? | Select-Object -First 2
+          choco install innosetup --yes --no-progress
+          Write-Host "✅ Inno Setup installed via Chocolatey"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /? 2>&1 | Select-Object -First 2
 
       - name: Build Windows Installer (Inno Setup)
         shell: cmd
