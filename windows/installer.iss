@@ -27,7 +27,7 @@ OutputBaseFilename=ReBook-Setup-{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 ; Visual
-SetupIconFile=icon.ico
+SetupIconFile=.\icon.ico
 WizardStyle=modern
 WizardSizePercent=110
 ; Privileges
