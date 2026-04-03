@@ -316,7 +316,7 @@ def correct_markdown(
 #  POST-TRANSLATION VERIFICATION PASS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _chunk_for_context(original: str, translated: str, max_chars: int = 800_000):
+def _chunk_for_context(original: str, translated: str, max_chars: int = 150_000):
     """Split original+translated into chunks that fit in the LLM context window.
     Yields (original_chunk, translated_chunk) pairs.
     Each pair is small enough that both fit within max_chars together.
@@ -438,13 +438,15 @@ ZWRÓĆ TYLKO POPRAWIONY TEKST TŁUMACZENIA."""
 
     chunks = list(_chunk_for_context(original_markdown, translated_markdown))
     total_chunks = len(chunks)
-    verified_parts = []
+    verified_parts = {}
 
-    for idx, (orig_chunk, trans_chunk) in enumerate(chunks):
-        if progress_callback:
-            progress_callback(idx, total_chunks,
-                f"🔍 Weryfikacja segmentu {idx+1}/{total_chunks}...")
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    lock = threading.Lock()
+    done_count = [0]
+
+    def _verify_one(idx, orig_chunk, trans_chunk):
         user_message = f"""═══ TEKST ORYGINALNY ({lang_from or 'źródłowy'}) ═══
 
 {orig_chunk}
@@ -458,7 +460,6 @@ ZWRÓĆ TYLKO POPRAWIONY TEKST TŁUMACZENIA."""
 Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). Pamiętaj o punktach 1-4 z instrukcji."""
 
         MAX_VERIFY_RETRIES = 10
-        success = False
         for attempt in range(MAX_VERIFY_RETRIES):
             try:
                 kwargs = {
@@ -478,30 +479,42 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
                 response = litellm.completion(**kwargs)
                 result = response.choices[0].message.content
                 if result and len(result.strip()) > 50:
-                    verified_parts.append(result.strip())
-                    success = True
-                    break
+                    with lock:
+                        done_count[0] += 1
+                        if progress_callback:
+                            progress_callback(done_count[0], total_chunks,
+                                f"✅ Segment {idx+1}/{total_chunks} zweryfikowany "
+                                f"({done_count[0]}/{total_chunks})")
+                    return result.strip()
                 else:
-                    if progress_callback:
-                        progress_callback(idx, total_chunks,
-                            f"⚠️ Pusta odpowiedź, próba {attempt+1}/{MAX_VERIFY_RETRIES}...")
                     time.sleep(3 * (attempt + 1))
             except Exception as e:
                 if progress_callback:
-                    progress_callback(idx, total_chunks,
-                        f"❌ Błąd weryfikacji (próba {attempt+1}/{MAX_VERIFY_RETRIES}): {e}")
+                    with lock:
+                        progress_callback(done_count[0], total_chunks,
+                            f"❌ Segment {idx+1} próba {attempt+1}/{MAX_VERIFY_RETRIES}: {e}")
                 time.sleep(5 * (attempt + 1))
 
-        if not success:
-            raise RuntimeError(
-                f"❌ BŁĄD KRYTYCZNY: Weryfikacja segmentu {idx+1}/{total_chunks} "
-                f"nie powiodła się mimo {MAX_VERIFY_RETRIES} prób!\n\n"
-                f"Spróbuj ponownie lub zmień model AI w Ustawieniach."
-            )
+        raise RuntimeError(
+            f"❌ BŁĄD KRYTYCZNY: Weryfikacja segmentu {idx+1}/{total_chunks} "
+            f"nie powiodła się mimo {MAX_VERIFY_RETRIES} prób!\n\n"
+            f"Spróbuj ponownie lub zmień model AI w Ustawieniach."
+        )
 
-        if progress_callback:
-            progress_callback(idx + 1, total_chunks,
-                f"✅ Segment {idx+1}/{total_chunks} zweryfikowany")
+    if progress_callback:
+        progress_callback(0, total_chunks,
+            f"🔍 Weryfikacja {total_chunks} segmentów równolegle...")
 
-    return '\n\n'.join(verified_parts)
+    # Run ALL chunks in parallel (Gemini Flash: 2000 RPM, so 30 is safe)
+    with ThreadPoolExecutor(max_workers=min(30, total_chunks)) as pool:
+        futures = {
+            pool.submit(_verify_one, i, o, t): i
+            for i, (o, t) in enumerate(chunks)
+        }
+        for f in as_completed(futures):
+            idx = futures[f]
+            verified_parts[idx] = f.result()  # raises if _verify_one raised
+
+    return '\n\n'.join(verified_parts[i] for i in range(total_chunks))
+
 
