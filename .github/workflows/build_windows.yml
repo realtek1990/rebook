@@ -125,6 +125,17 @@ jobs:
           ./build_dmg.sh
           ls -lh ReBook.dmg
 
+      - name: Ad-hoc codesign (reduce Gatekeeper friction)
+        run: |
+          # Sign the .app inside the repo with ad-hoc identity (-)
+          # This allows right-click → Open without full notarization
+          codesign --force --deep --sign - ReBook.app
+          echo "✅ Ad-hoc signed"
+          # Rebuild DMG with signed app
+          rm -f ReBook.dmg
+          ./build_dmg.sh
+          ls -lh ReBook.dmg
+
       - name: Publish macOS DMG to GitHub Release
         uses: ncipollo/release-action@v1
         with:
