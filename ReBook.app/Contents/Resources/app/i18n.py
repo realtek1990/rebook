@@ -1,12 +1,13 @@
 """ReBook — Internationalization (i18n) module.
 
-Auto-detects macOS system language via NSLocale and provides
-translated strings through a simple t("key") API.
-Supports 25 languages with automatic fallback to English.
+Auto-detects system language (macOS NSLocale / Windows / POSIX)
+and provides translated strings through a simple t("key") API.
+Supports 27 languages with automatic fallback to English.
 """
-import os
+import os, sys
 
 def _detect_language() -> str:
+    # 1. macOS: NSLocale
     try:
         from Foundation import NSLocale
         langs = NSLocale.preferredLanguages()
@@ -14,6 +15,31 @@ def _detect_language() -> str:
             return str(langs[0])[:2].lower()
     except Exception:
         pass
+    # 2. Windows: kernel32 / locale
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            wl = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+            # Map Windows LANGID to ISO 639-1
+            _map = {0x0415:"pl",0x0409:"en",0x0407:"de",0x040a:"es",0x040c:"fr",
+                    0x0816:"pt",0x0405:"cs",0x041b:"sk",0x0422:"uk",0x041d:"sv",
+                    0x0414:"no",0x0804:"zh",0x0411:"ja",0x0410:"it",0x0c1a:"sr",
+                    0x0419:"ru",0x041a:"hr",0x041f:"tr",0x0401:"ar",0x0429:"fa",
+                    0x040b:"fi",0x0406:"da",0x0413:"nl",0x042a:"vi",0x041e:"th",
+                    0x040e:"hu",0x0418:"ro"}
+            code = _map.get(wl)
+            if code:
+                return code
+        except Exception:
+            pass
+        try:
+            import locale
+            lang = locale.getdefaultlocale()[0]
+            if lang:
+                return lang[:2].lower()
+        except Exception:
+            pass
+    # 3. POSIX: env vars
     for var in ("LANG", "LC_ALL", "LC_MESSAGES"):
         val = os.environ.get(var, "")
         if val:
