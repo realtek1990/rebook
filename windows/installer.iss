@@ -4,7 +4,7 @@
 ; Requires: Inno Setup 6+ (https://jrsoftware.org/isinfo.php)
 
 #define MyAppName "ReBook"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.2.1"
 #define MyAppPublisher "ReBook"
 #define MyAppURL "https://github.com/realtek1990/rebook"
 #define MyAppExeName "ReBook.exe"
@@ -64,11 +64,15 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
+; Main executable (built by GitHub Actions / PyInstaller)
 Source: "dist\ReBook.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Python backend (shared with macOS via build_win_dist.sh)
+Source: "dist\rebook_win.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\i18n.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\converter.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\corrector.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\image_translator.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\manual_convert.py"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -77,4 +81,25 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Launch app after install
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Check Python installed, warn if missing
+function InitializeSetup(): Boolean;
+var
+  PythonPath: String;
+begin
+  Result := True;
+  if not RegQueryStringValue(HKEY_LOCAL_MACHINE,
+    'SOFTWARE\Python\PythonCore\3.12\InstallPath',
+    '', PythonPath) and
+     not RegQueryStringValue(HKEY_CURRENT_USER,
+    'SOFTWARE\Python\PythonCore\3.12\InstallPath',
+    '', PythonPath) then
+  begin
+    MsgBox('ReBook requires Python 3.10 or newer.' + #13#10 +
+           'Please install Python from https://python.org and try again.' + #13#10#13#10 +
+           'The app will still work if Python is installed system-wide.', mbInformation, MB_OK);
+  end;
+end;

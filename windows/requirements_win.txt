@@ -1,0 +1,11 @@
+# ReBook Windows — zależności (bez macOS-only packages)
+customtkinter>=5.2.0
+litellm>=1.0.0
+ebooklib>=0.18
+markdown>=3.5
+beautifulsoup4>=4.12
+markdownify>=0.11
+Pillow>=10.0
+google-genai>=1.0
+fitz-old==0.0.2  ; python_version>="3.8"  # fallback, PyMuPDF preferred
+PyMuPDF>=1.23

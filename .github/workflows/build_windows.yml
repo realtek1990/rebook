@@ -1,0 +1,125 @@
+name: Build ReBook Windows Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "windows/**"
+      - "ReBook.app/Contents/Resources/app/corrector.py"
+      - "ReBook.app/Contents/Resources/app/converter.py"
+      - "ReBook.app/Contents/Resources/app/image_translator.py"
+      - "ReBook.app/Contents/Resources/app/i18n.py"
+  workflow_dispatch:  # allow manual trigger from GitHub UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Python ──────────────────────────────────────────────────────
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      # ── 3. Sync backend into windows/dist/ ───────────────────────────────────
+      - name: Sync backend files to windows/dist
+        shell: bash
+        run: |
+          mkdir -p windows/dist
+          cp ReBook.app/Contents/Resources/app/corrector.py windows/dist/
+          cp ReBook.app/Contents/Resources/app/converter.py windows/dist/
+          cp ReBook.app/Contents/Resources/app/image_translator.py windows/dist/
+          cp ReBook.app/Contents/Resources/app/i18n.py windows/dist/
+          cp ReBook.app/Contents/Resources/app/manual_convert.py windows/dist/
+          cp windows/rebook_win.py windows/dist/
+          cp windows/requirements_win.txt windows/dist/requirements.txt
+          echo "✅ Synced $(ls windows/dist | wc -l) files"
+
+      # ── 4. Install dependencies ───────────────────────────────────────────────
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller customtkinter
+          pip install -r windows/requirements_win.txt || true
+          # litellm pulls a lot — allow failures for optional deps
+          pip install litellm || echo "litellm partial install, continuing"
+
+      # ── 5. Build EXE via PyInstaller ─────────────────────────────────────────
+      - name: Build ReBook.exe
+        shell: bash
+        working-directory: windows/dist
+        run: |
+          pyinstaller \
+            --onefile \
+            --noconsole \
+            --name ReBook \
+            --icon "../../assets/icon.ico" \
+            --add-data "i18n.py;." \
+            --add-data "corrector.py;." \
+            --add-data "converter.py;." \
+            --add-data "image_translator.py;." \
+            --add-data "manual_convert.py;." \
+            --add-data "requirements.txt;." \
+            --hidden-import customtkinter \
+            --hidden-import litellm \
+            --hidden-import ebooklib \
+            --hidden-import markdown \
+            --hidden-import bs4 \
+            --hidden-import markdownify \
+            --hidden-import PIL \
+            --hidden-import fitz \
+            rebook_win.py
+          cp dist/ReBook.exe ../dist/ReBook.exe
+          echo "✅ ReBook.exe: $(du -sh ../dist/ReBook.exe | cut -f1)"
+
+      # ── 6. Download + run Inno Setup ─────────────────────────────────────────
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          $url = "https://jrsoftware.org/download.php/is.exe"
+          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\innosetup.exe"
+          Start-Process -FilePath "$env:TEMP\innosetup.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
+          echo "✅ Inno Setup installed"
+
+      - name: Build Windows Installer
+        shell: cmd
+        working-directory: windows
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+          dir output\
+
+      # ── 7. Upload artifacts ──────────────────────────────────────────────────
+      - name: Upload installer as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReBook-Windows-Installer
+          path: windows/output/ReBook-Setup-*.exe
+          retention-days: 30
+
+      # ── 8. Create GitHub Release (only on version tags) ──────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: windows/output/ReBook-Setup-*.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 9. Also upload macOS DMG if present ──────────────────────────────────
+      - name: Upload macOS DMG to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        continue-on-error: true
+        with:
+          files: "*.dmg"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
