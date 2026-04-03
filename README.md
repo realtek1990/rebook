@@ -1,60 +1,59 @@
 # 📚 ReBook — AI-Powered PDF/EPUB Converter
 
 <p align="center">
-  <strong>Konwerter plików PDF i EPUB ze wsparciem sztucznej inteligencji</strong><br>
-  Tłumaczenie • Korekta • OCR • Natywny macOS
+  <strong>Translate and convert e-books with state-of-the-art AI</strong><br>
+  Translation • Correction • OCR • Native macOS • 27 Languages
 </p>
 
 ---
 
-## ✨ Funkcje
+## ✨ Features
 
-- 🔄 **Konwersja formatów** — PDF → EPUB, EPUB → EPUB/Markdown/HTML
-- 🤖 **Tłumaczenie AI** — Gemini 3, GPT-5, Claude 4.6, Mistral, GLM i inne
-- 📖 **OCR z PDF** — Marker OCR rozpoznaje tekst ze skanów (opcjonalne)
-- 📧 **Send-to-Kindle** — wyślij książkę prosto na czytnik
-- 🎨 **Natywny interfejs macOS** — Cocoa/AppKit, drag & drop, dark mode
-- ⚡ **30 wątków równolegle** — błyskawiczne tłumaczenie całych książek
-- 🔁 **Auto-retry** — nieudane segmenty są automatycznie ponawiane
+- 🔄 **Format conversion** — PDF → EPUB, EPUB → EPUB/Markdown/HTML
+- 🤖 **AI translation** — Gemini 3, GPT-5, Claude 4.6, Mistral, GLM, Groq
+- 📖 **PDF OCR** — Marker OCR extracts text from scans (optional)
+- 📧 **Send to Kindle** — one-click delivery via email or USB
+- 🎨 **Native macOS GUI** — Cocoa/AppKit, drag & drop
+- ⚡ **30 parallel threads** — translate entire books in minutes
+- 🔁 **Auto-retry** — failed segments are automatically retried (up to 3 rounds)
+- 🌍 **27 languages** — UI auto-detects your system language
 
-## 📦 Instalacja
+## 📦 Installation
 
-### Szybka instalacja (Terminal)
+### Download (recommended)
 
-```bash
-git clone https://github.com/realtek1990/rebook.git
-cd rebook
-./install.sh
-```
+1. Download **[ReBook.dmg](https://github.com/realtek1990/rebook/releases/latest/download/ReBook.dmg)** (2.4 MB)
+2. Open the DMG and drag **ReBook** to **Applications**
+3. Launch ReBook — the setup wizard will guide you
 
-Instalator zapyta Cię o komponenty:
+On first launch, choose your installation type:
 
-| Opcja | Rozmiar | Możliwości |
-|-------|---------|------------|
-| **Lekka** | ~100 MB | EPUB ↔ EPUB/MD/HTML + AI + Kindle |
-| **Pełna** | ~1.2 GB | Wszystko + OCR z PDF (Marker + PyTorch) |
+| Option | Size | Capabilities |
+|--------|------|-------------|
+| **⚡ Light** | ~100 MB | EPUB ↔ EPUB/MD/HTML + AI + Kindle |
+| **📦 Full** | ~1.2 GB | Everything + PDF OCR (Marker + PyTorch) |
 
-> 💡 **Marker OCR** można doinstalować później bez reinstalacji całej aplikacji.
+> 💡 Marker OCR can be installed later without reinstalling the app.
 
-### Wymagania
+### System Requirements
 
-- macOS 12+ (Monterey lub nowszy)
-- Python 3.9+
-- Klucz API jednego z dostawców AI (Gemini, OpenAI, Anthropic, Mistral...)
+- macOS 11.0+ (Big Sur or later), Apple Silicon or Intel
+- Python 3.9+ ([Homebrew](https://brew.sh) recommended)
+- API key from any supported AI provider
 
-## 🚀 Użycie
+## 🚀 Usage
 
-1. Uruchom **ReBook** z Launchpada lub: `open /Applications/ReBook.app`
-2. Kliknij ⚙️ **Ustawienia** i skonfiguruj:
-   - Dostawcę AI (np. Google Gemini)
-   - Model (np. `gemini-3-flash-preview`)
-   - Klucz API
-3. Przeciągnij plik PDF/EPUB na okno
-4. Wybierz format wyjściowy i kliknij **🚀 Konwertuj**
+1. Launch **ReBook** from Launchpad or Applications
+2. Click ⚙️ **Settings** and configure:
+   - AI provider (e.g. Google Gemini)
+   - Model (e.g. `gemini-3-flash-preview`)
+   - API key
+3. Drag a PDF/EPUB file onto the window
+4. Choose output format and click **🚀 Convert**
 
-### Obsługiwane modele AI
+### Supported AI Models
 
-| Dostawca | Modele |
+| Provider | Models |
 |----------|--------|
 | **Google Gemini** | `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-2.5-pro` |
 | **OpenAI** | `gpt-5-preview`, `gpt-4.5-preview`, `gpt-4o`, `o3-mini` |
@@ -63,25 +62,32 @@ Instalator zapyta Cię o komponenty:
 | **ZhipuAI** | `glm-4-plus`, `glm-4-flash` |
 | **Groq** | `llama-3.3-70b-versatile`, `deepseek-r1-distill-llama-70b` |
 
-## 📁 Struktura projektu
+## 🌍 Supported Interface Languages
+
+Auto-detected from your macOS system language:
+
+🇵🇱 Polski • 🇬🇧 English • 🇩🇪 Deutsch • 🇪🇸 Español • 🇫🇷 Français • 🇵🇹 Português • 🇮🇹 Italiano • 🇳🇱 Nederlands • 🇨🇿 Čeština • 🇸🇰 Slovenčina • 🇺🇦 Українська • 🇷🇺 Русский • 🇭🇺 Magyar • 🇷🇴 Română • 🇭🇷 Hrvatski • 🇷🇸 Srpski • 🇹🇷 Türkçe • 🇸🇪 Svenska • 🇳🇴 Norsk • 🇩🇰 Dansk • 🇫🇮 Suomi • 🇨🇳 中文 • 🇯🇵 日本語 • 🇻🇳 Tiếng Việt • 🇹🇭 ไทย • 🇸🇦 العربية • 🇮🇷 فارسی
+
+## 📁 Project Structure
 
 ```
 rebook/
-├── install.sh                    # Instalator z wyborem komponentów
-├── PDF-Converter.app/            # Natywna aplikacja macOS
+├── ReBook.app/                   # Native macOS application
 │   └── Contents/
-│       ├── MacOS/PDF Converter   # Launcher
+│       ├── MacOS/ReBook          # Launcher + first-run installer
 │       └── Resources/app/
-│           ├── native_gui.py     # GUI (Cocoa/AppKit)
-│           ├── converter.py      # Pipeline konwersji
-│           └── corrector.py      # Silnik AI (LiteLLM)
-├── requirements.txt              # Zależności Python
+│           ├── native_gui.py     # Main GUI (Cocoa/AppKit)
+│           ├── converter.py      # Conversion pipeline
+│           ├── corrector.py      # AI engine (LiteLLM)
+│           └── i18n.py           # 27-language translations
+├── build_dmg.sh                  # Build distributable DMG
+├── requirements.txt              # Python dependencies
 └── README.md
 ```
 
-## ⚙️ Konfiguracja zaawansowana
+## ⚙️ Advanced Configuration
 
-Konfiguracja jest zapisywana w `~/.pdf2epub-app/config.json`:
+Settings are stored in `~/.pdf2epub-app/config.json`:
 
 ```json
 {
@@ -94,13 +100,12 @@ Konfiguracja jest zapisywana w `~/.pdf2epub-app/config.json`:
 }
 ```
 
-### Doinstalowanie Marker OCR później
+### Install Marker OCR later
 
 ```bash
-source ~/.pdf2epub-app/env/bin/activate
-pip install marker-pdf
+~/.pdf2epub-app/env/bin/pip install marker-pdf
 ```
 
-## 📄 Licencja
+## 📄 License
 
-MIT License — zobacz [LICENSE](LICENSE)
+MIT License — see [LICENSE](LICENSE)

@@ -1,13 +1,28 @@
-# Środowisko wirtualne
+# Virtual environments
 marker-env/
 venv/
 __pycache__/
 
-# Klucze API
+# API keys
 .env
 
-# Pliki tymczasowe
+# Build artifacts
 *.log
+*.dmg
+.dmg_staging/
 marker_temp_output/
-ReBook.dmg
-dmg_staging/
+
+# macOS
+.DS_Store
+
+# Unrelated project files
+flight-finder/
+pdf-converter/
+DeDRM_plugin*
+Obok_plugin*
+obok_plugin*
+ReadMe_Overview.txt
+compare_glm.py
+read_pdf.py
+pdf_content.txt
+*.pdf
