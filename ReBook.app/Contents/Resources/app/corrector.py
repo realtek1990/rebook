@@ -290,3 +290,182 @@ def correct_markdown(
                 f"⚠️ UWAGA: {len(missing)} segmentów nie udało się przetłumaczyć mimo ponowień")
 
     return '\n'.join(result_parts)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  POST-TRANSLATION VERIFICATION PASS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _chunk_for_context(original: str, translated: str, max_chars: int = 800_000):
+    """Split original+translated into chunks that fit in the LLM context window.
+    Yields (original_chunk, translated_chunk) pairs.
+    Each pair is small enough that both fit within max_chars together.
+    """
+    orig_lines = original.split('\n')
+    trans_lines = translated.split('\n')
+
+    # If both fit, return as single chunk
+    if len(original) + len(translated) < max_chars:
+        yield original, translated
+        return
+
+    # Otherwise split by approximate paragraph boundaries
+    chunk_size = max_chars // 3  # leave room for prompt + response
+    orig_chunks, trans_chunks = [], []
+
+    def _split_text(text, size):
+        parts = []
+        current = []
+        current_len = 0
+        for line in text.split('\n'):
+            if current_len + len(line) > size and current:
+                parts.append('\n'.join(current))
+                current = [line]
+                current_len = len(line)
+            else:
+                current.append(line)
+                current_len += len(line) + 1
+        if current:
+            parts.append('\n'.join(current))
+        return parts
+
+    o_parts = _split_text(original, chunk_size)
+    t_parts = _split_text(translated, chunk_size)
+
+    # Zip chunks; if counts differ, pair by index
+    count = max(len(o_parts), len(t_parts))
+    for i in range(count):
+        o = o_parts[i] if i < len(o_parts) else ""
+        t = t_parts[i] if i < len(t_parts) else ""
+        yield o, t
+
+
+def verify_translation(
+    original_markdown: str,
+    translated_markdown: str,
+    lang_from: str = "angielski",
+    lang_to: str = "polski",
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+) -> str:
+    """Post-translation verification pass.
+
+    Sends the original and translated texts side-by-side to a large-context LLM
+    (ideally Gemini Flash with 1M context) to:
+    1. Detect missing segments (present in original but absent in translation)
+    2. Detect untranslated passages (still in source language)
+    3. Detect nonsensical content (random numbers, garbled text from OCR)
+    4. Auto-fix all issues found
+
+    Returns the verified (and if needed, repaired) translated text.
+    """
+    config = get_config()
+    if not config.get("api_key"):
+        return translated_markdown
+
+    import litellm
+    litellm.suppress_debug_info = True
+
+    model_name = config.get("model_name", "gpt-4o-mini").strip().lower()
+    provider = config.get("llm_provider", "").strip().lower()
+
+    api_base = None
+    if provider == "zhipuai":
+        model_name = f"openai/{model_name}"
+        api_base = "https://open.bigmodel.cn/api/coding/paas/v4/"
+    elif provider == "mistral":
+        model_name = f"mistral/{model_name}"
+    elif provider and provider != "brak" and "/" not in model_name:
+        model_name = f"{provider}/{model_name}"
+
+    api_key = config.get("api_key", "").strip()
+
+    verify_prompt = f"""Jesteś ekspertem od kontroli jakości tłumaczeń książek.
+
+Otrzymujesz TEKST ORYGINALNY (w języku {lang_from or 'źródłowym'}) oraz TŁUMACZENIE (w języku {lang_to}).
+
+Twoim zadaniem jest:
+
+1. **ZNAJDŹ BRAKUJĄCE SEGMENTY**: Porównaj oryginał z tłumaczeniem — jeśli jakikolwiek akapit, zdanie lub fragment z oryginału CAŁKOWICIE BRAKUJE w tłumaczeniu, wstaw go przetłumaczony w odpowiednie miejsce.
+
+2. **ZNAJDŹ NIEPRZETŁUMACZONE FRAGMENTY**: Jeśli w tłumaczeniu nadal znajdują się zdania lub fragmenty w języku {lang_from or 'źródłowym'} (nieprzetłumaczone), PRZETŁUMACZ je na {lang_to}.
+
+3. **ZNAJDŹ BŁĘDY I ARTEFAKTY**: Jeśli w tekście tłumaczenia występują:
+   - Losowe cyfry lub ciągi znaków bez sensu
+   - Śmieci z OCR (np. "1 2 3", "###", dziwne symbole)
+   - Powtórzenia zdań
+   - Niedokończone zdania
+   → NAPRAW je lub USUŃ jeśli są śmieciami.
+
+4. **ZACHOWAJ STRUKTURĘ**: Zachowaj formatowanie Markdown (nagłówki #, pogrubienia **, listy -, cytaty >, obrazy ![...](...)).
+
+WAŻNE:
+- Zwróć KOMPLETNY, POPRAWIONY tekst tłumaczenia.
+- NIE dodawaj swoich komentarzy, notatek ani wyjaśnień.
+- NIE usuwaj poprawnych fragmentów.
+- Popraw TYLKO to co jest błędne lub brakujące.
+- Jeśli tłumaczenie jest idealne, zwróć je bez zmian.
+
+ZWRÓĆ TYLKO POPRAWIONY TEKST TŁUMACZENIA."""
+
+    chunks = list(_chunk_for_context(original_markdown, translated_markdown))
+    total_chunks = len(chunks)
+    verified_parts = []
+
+    for idx, (orig_chunk, trans_chunk) in enumerate(chunks):
+        if progress_callback:
+            progress_callback(idx, total_chunks,
+                f"🔍 Weryfikacja segmentu {idx+1}/{total_chunks}...")
+
+        user_message = f"""═══ TEKST ORYGINALNY ({lang_from or 'źródłowy'}) ═══
+
+{orig_chunk}
+
+═══ TŁUMACZENIE ({lang_to}) ═══
+
+{trans_chunk}
+
+═══ KONIEC ═══
+
+Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). Pamiętaj o punktach 1-4 z instrukcji."""
+
+        for attempt in range(3):
+            try:
+                kwargs = {
+                    "model": model_name,
+                    "api_key": api_key,
+                    "messages": [
+                        {"role": "system", "content": verify_prompt},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 65536,
+                    "timeout": 300,
+                }
+                if api_base:
+                    kwargs["api_base"] = api_base
+
+                response = litellm.completion(**kwargs)
+                result = response.choices[0].message.content
+                if result and len(result.strip()) > 50:
+                    verified_parts.append(result.strip())
+                    break
+                else:
+                    # Fallback to original translation
+                    verified_parts.append(trans_chunk)
+                    break
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(5 * (attempt + 1))
+                    continue
+                # On final failure, keep original translation
+                verified_parts.append(trans_chunk)
+                if progress_callback:
+                    progress_callback(idx + 1, total_chunks,
+                        f"⚠️ Weryfikacja segmentu {idx+1} nie powiodła się: {e}")
+
+        if progress_callback:
+            progress_callback(idx + 1, total_chunks,
+                f"✅ Segment {idx+1}/{total_chunks} zweryfikowany")
+
+    return '\n\n'.join(verified_parts)
+

@@ -713,6 +713,31 @@ STRINGS = {
         "pl": "⚠️ UWAGA: {n} segmentów nie udało się przetłumaczyć mimo ponowień",
         "en": "⚠️ WARNING: {n} segments could not be translated despite retries",
     },
+    # Verification pass
+    "verify_start": {
+        "pl": "🔍 Weryfikacja tłumaczenia…", "en": "🔍 Verifying translation…",
+        "de": "🔍 Übersetzung wird überprüft…", "es": "🔍 Verificando traducción…",
+        "fr": "🔍 Vérification de la traduction…", "ru": "🔍 Проверка перевода…",
+        "uk": "🔍 Перевірка перекладу…", "zh": "🔍 正在验证翻译…", "ja": "🔍 翻訳を検証中…",
+    },
+    "verify_segment": {
+        "pl": "🔍 Weryfikacja segmentu {cur}/{tot}...",
+        "en": "🔍 Verifying segment {cur}/{tot}...",
+    },
+    "verify_segment_done": {
+        "pl": "✅ Segment {cur}/{tot} zweryfikowany",
+        "en": "✅ Segment {cur}/{tot} verified",
+    },
+    "verify_segment_fail": {
+        "pl": "⚠️ Weryfikacja segmentu {cur} nie powiodła się",
+        "en": "⚠️ Verification of segment {cur} failed",
+    },
+    "verify_done": {
+        "pl": "✅ Weryfikacja zakończona", "en": "✅ Verification complete",
+        "de": "✅ Überprüfung abgeschlossen", "es": "✅ Verificación completada",
+        "fr": "✅ Vérification terminée", "ru": "✅ Проверка завершена",
+        "uk": "✅ Перевірку завершено", "zh": "✅ 验证完成", "ja": "✅ 検証完了",
+    },
     "kindle_sending": {
         "pl": "Wysyłam na Kindle...", "en": "Sending to Kindle...",
         "de": "Wird an Kindle gesendet...", "es": "Enviando a Kindle...",

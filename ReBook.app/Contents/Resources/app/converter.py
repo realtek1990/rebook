@@ -75,6 +75,7 @@ def convert_file(
         report("ocr", 100, "OCR zakończone")
 
     # ── Stage 2: AI Correction / Translation ──────────────────────────────
+    md_original = md_text  # save original for verification pass
     if use_llm:
         label = "Tłumaczenie" if use_translate else "Korekcja AI"
         report("correction", 0, f"{label} — inicjalizacja…")
@@ -94,6 +95,23 @@ def convert_file(
             progress_callback=on_llm,
         )
         report("correction", 100, f"{label} zakończona")
+
+    # ── Stage 2.5: Verification Pass ─────────────────────────────────────
+    if use_llm and use_translate:
+        report("verification", 0, "🔍 Weryfikacja tłumaczenia…")
+
+        def on_verify(cur, tot, msg):
+            pct = int(cur / tot * 100) if tot else 0
+            report("verification", pct, msg)
+
+        md_text = corrector.verify_translation(
+            original_markdown=md_original,
+            translated_markdown=md_text,
+            lang_from=lang_from or "angielski",
+            lang_to=lang_to,
+            progress_callback=on_verify,
+        )
+        report("verification", 100, "✅ Weryfikacja zakończona")
 
     # ── Stage 3: Export ───────────────────────────────────────────────────
     report("export", 50, f"Eksport → {output_format.upper()}…")
