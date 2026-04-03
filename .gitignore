@@ -9,3 +9,5 @@ __pycache__/
 # Pliki tymczasowe
 *.log
 marker_temp_output/
+ReBook.dmg
+dmg_staging/
