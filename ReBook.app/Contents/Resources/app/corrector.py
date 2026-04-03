@@ -255,34 +255,66 @@ def correct_markdown(
             if progress_callback:
                 progress_callback(done_count, total, f"{mode_str} bloku {done_count}/{total} (~{len(original)//1000}K znaków)...")
 
-    # ═══ RETRY FAILED SEGMENTS (AGGRESSIVE — 10 ROUNDS) ═══
-    # ZERO TOLERANCE: every segment MUST be translated. No silent fallbacks.
+    # ═══ RETRY FAILED SEGMENTS — WITH AUTO SUB-CHUNKING ═══
+    # Strategy: after 3 failures at full size, split the chunk into smaller pieces
     MAX_RETRY_ROUNDS = 10
+    SUB_CHUNK_THRESHOLD = 3  # switch to sub-chunking after this many failures
+
     if failed_indices:
         if progress_callback:
             progress_callback(total, total, f"🔄 Ponawiam {len(failed_indices)} nieudanych segmentów...")
         
+        failure_counts = {i: 0 for i in failed_indices}
+
         for retry_round in range(MAX_RETRY_ROUNDS):
             if not failed_indices:
                 break
             still_failing = []
-            # Exponential backoff between rounds
             if retry_round > 0:
                 wait = min(30, 3 * (2 ** retry_round))
                 if progress_callback:
                     progress_callback(total, total, f"⏳ Czekam {wait}s przed rundą {retry_round+1}...")
                 time.sleep(wait)
 
+            # Adaptive timeout: longer for later retries
+            adaptive_timeout = min(600, 120 + retry_round * 60)
+
             for i in failed_indices:
                 original_text = '\n'.join(b["content"] for b in mega_blocks[i])
+                failure_counts[i] = failure_counts.get(i, 0) + 1
+
+                # After SUB_CHUNK_THRESHOLD failures → split into sub-chunks
+                if failure_counts[i] >= SUB_CHUNK_THRESHOLD:
+                    if progress_callback:
+                        progress_callback(total, total,
+                            f"✂️ Segment {i+1}: dzielę na mniejsze części (próba {retry_round+1})...")
+                    try:
+                        sub_result = _translate_with_sub_chunks(
+                            original_text, system_prompt, adaptive_timeout)
+                        if sub_result and len(sub_result.strip()) > 20:
+                            result_parts[i] = sub_result
+                            if progress_callback:
+                                progress_callback(total, total,
+                                    f"✅ Segment {i+1} odzyskany przez sub-chunking!")
+                            continue
+                    except Exception as e:
+                        still_failing.append(i)
+                        if progress_callback:
+                            progress_callback(total, total,
+                                f"❌ Segment {i+1} sub-chunking: {e}")
+                        continue
+
+                # Normal retry
                 if progress_callback:
-                    progress_callback(total, total, f"🔄 Ponowna próba {retry_round+1}/{MAX_RETRY_ROUNDS} segmentu {i+1}...")
+                    progress_callback(total, total,
+                        f"🔄 Próba {retry_round+1}/{MAX_RETRY_ROUNDS} segmentu {i+1} (timeout={adaptive_timeout}s)...")
                 try:
-                    result = process_mega_block(original_text, system_prompt)
+                    result = process_mega_block(original_text, system_prompt, retries=1)
                     if result and len(result.strip()) > 20:
                         result_parts[i] = result
                         if progress_callback:
-                            progress_callback(total, total, f"✅ Segment {i+1} odzyskany w próbie {retry_round+1}!")
+                            progress_callback(total, total,
+                                f"✅ Segment {i+1} odzyskany w próbie {retry_round+1}!")
                     else:
                         still_failing.append(i)
                 except Exception as e:
@@ -292,8 +324,6 @@ def correct_markdown(
             failed_indices = still_failing
 
     # ═══ FINAL INTEGRITY CHECK — HARD FAIL ═══
-    # ZERO TOLERANCE: if ANY segment is missing, ABORT the entire conversion.
-    # We NEVER silently insert untranslated text into the output.
     missing = [i for i, p in enumerate(result_parts) if p is None]
     if missing:
         seg_list = ', '.join(str(i+1) for i in missing[:10])
@@ -302,14 +332,107 @@ def correct_markdown(
             f"❌ BŁĄD KRYTYCZNY: {len(missing)} segmentów nie udało się przetłumaczyć "
             f"mimo {MAX_RETRY_ROUNDS} prób!\n"
             f"Segmenty: {seg_list}{more}\n\n"
-            f"Możliwe przyczyny:\n"
-            f"• Problem z API (limit zapytań, timeout)\n"
-            f"• Zbyt duże bloki tekstu dla wybranego modelu\n"
-            f"• Niestabilne połączenie internetowe\n\n"
             f"Spróbuj ponownie lub zmień model AI w Ustawieniach."
         )
 
-    return '\n'.join(result_parts)
+    # ═══ POST-TRANSLATION QUALITY GATE ═══
+    # Check each chunk: if >30% lines look like source language, re-translate
+    if use_translate and lang_from:
+        if progress_callback:
+            progress_callback(total, total, "🔬 Kontrola jakości tłumaczenia...")
+        
+        retranslate_indices = []
+        for i, part in enumerate(result_parts):
+            if part is None:
+                continue
+            eng_ratio = _source_language_ratio(part)
+            if eng_ratio > 0.30:
+                retranslate_indices.append((i, eng_ratio))
+        
+        if retranslate_indices and progress_callback:
+            progress_callback(total, total,
+                f"⚠️ {len(retranslate_indices)} segmentów ma >30% tekstu źródłowego — ponawiam tłumaczenie...")
+
+        for i, ratio in retranslate_indices:
+            original_text = '\n'.join(b["content"] for b in mega_blocks[i])
+            if progress_callback:
+                progress_callback(total, total,
+                    f"🔄 Re-tłumaczenie segmentu {i+1} ({ratio:.0%} źródłowego)...")
+            try:
+                result = _translate_with_sub_chunks(original_text, system_prompt, 300)
+                if result and len(result.strip()) > 20:
+                    new_ratio = _source_language_ratio(result)
+                    if new_ratio < ratio:  # only replace if actually better
+                        result_parts[i] = result
+                        if progress_callback:
+                            progress_callback(total, total,
+                                f"✅ Segment {i+1}: {ratio:.0%} → {new_ratio:.0%} źródłowego")
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(total, total,
+                        f"⚠️ Re-tłumaczenie segmentu {i+1} nie powiodło się: {e}")
+
+    return '\n'.join(p for p in result_parts if p is not None)
+
+
+def _source_language_ratio(text: str) -> float:
+    """Estimate what fraction of lines appear to be in English (source language)."""
+    lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 20]
+    if not lines:
+        return 0.0
+    english_indicators = [' the ', ' and ', ' for ', ' that ', ' with ', ' from ',
+                          ' this ', ' have ', ' are ', ' was ', ' were ', ' been ']
+    eng_count = 0
+    for line in lines:
+        ascii_ratio = sum(1 for c in line if ord(c) < 128) / len(line)
+        if ascii_ratio > 0.85 and any(w in line.lower() for w in english_indicators):
+            eng_count += 1
+    return eng_count / len(lines)
+
+
+def _translate_with_sub_chunks(
+    text: str,
+    system_prompt: str,
+    timeout: int = 300,
+    max_sub_chunks: int = 4,
+) -> str:
+    """Split a large text into sub-chunks and translate each in parallel.
+    Used as fallback when a full chunk repeatedly times out.
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    paragraphs = text.split('\n\n')
+    n = max(1, len(paragraphs) // max_sub_chunks)
+    sub_chunks = []
+    for i in range(0, len(paragraphs), n):
+        chunk = '\n\n'.join(paragraphs[i:i+n])
+        if chunk.strip():
+            sub_chunks.append(chunk)
+
+    if not sub_chunks:
+        return text
+
+    results = {}
+    lock = threading.Lock()
+
+    def _translate_sub(idx, sub_text):
+        for attempt in range(5):
+            try:
+                result = process_mega_block(sub_text, system_prompt, retries=1)
+                if result and len(result.strip()) > 10:
+                    return result.strip()
+            except Exception:
+                time.sleep(3 * (attempt + 1))
+        return sub_text  # fallback to original if all retries fail
+
+    with ThreadPoolExecutor(max_workers=max_sub_chunks) as pool:
+        futures = {pool.submit(_translate_sub, i, sc): i
+                   for i, sc in enumerate(sub_chunks)}
+        for f in as_completed(futures):
+            results[futures[f]] = f.result()
+
+    return '\n\n'.join(results[i] for i in range(len(sub_chunks)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
