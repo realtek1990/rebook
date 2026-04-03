@@ -638,6 +638,164 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
             idx = futures[f]
             verified_parts[idx] = f.result()  # raises if _verify_one raised
 
-    return '\n\n'.join(verified_parts[i] for i in range(total_chunks))
+    final_text = '\n\n'.join(verified_parts[i] for i in range(total_chunks))
+
+    # --- POST-VERIFICATION RESILIENCE ---
+    if progress_callback:
+        progress_callback(total_chunks, total_chunks, "🧹 Deduplikacja i czyszczenie końcowe...")
+    
+    final_text = _deduplicate_markdown(final_text)
+    final_text = _deep_translate_clusters(final_text, verify_prompt, model_name, api_key, api_base, progress_callback)
+
+    return final_text
+
+
+def _deduplicate_markdown(text: str) -> str:
+    """Detects and removes long sequences of duplicated text or repeated overlapping
+    H1 blocks that LLMs sometimes hallucinate when processing chunked documents."""
+    import re
+    # Usuwamy dokładnie zduplikowane sąsiedzkie bloki powtarzające ten sam # Nagłówek i to samo wnętrze.
+    # Używamy heurestyki: powtarzające się H1 w relatywnie niedużym odstępie z niemal identycznym tekstem wewnątrz.
+    
+    # 1. Brutalne zdeduplikowanie "Przyszłość" -> "Myśli końcowe" -> "Aneks" (bolączka końcówek)
+    p_end = re.compile(r'(# Przyszłość.*?)(?=# Przyszłość)', re.DOTALL)
+    m_end = p_end.search(text)
+    if m_end and "# Aneks" in m_end.group(1) and "# Podziękowania" in m_end.group(1):
+        text = text.replace(m_end.group(1), '', 1)
+        
+    # 2. General H1 duplication (if between two identical H1s there is less than e.g. 5000 chars, drop it)
+    lines = text.split('\n')
+    headers = [i for i, l in enumerate(lines) if re.match(r'^#\s+', l)]
+    
+    to_delete = []
+    for i in range(len(headers)-1):
+        h1 = lines[headers[i]].strip()
+        h2 = lines[headers[i+1]].strip()
+        if h1 == h2:
+            # Drop the block from headers[i] up to headers[i+1]
+            to_delete.append((headers[i], headers[i+1]))
+            
+    if to_delete:
+        final_lines = []
+        skip_to = -1
+        for i, l in enumerate(lines):
+            if i < skip_to:
+                continue
+            for start, end in to_delete:
+                if i == start:
+                    skip_to = end
+                    break
+            if i >= skip_to:
+                final_lines.append(l)
+        text = '\n'.join(final_lines)
+
+    return text
+
+
+def _deep_translate_clusters(
+    text: str,
+    system_prompt: str,
+    model_name: str,
+    api_key: str,
+    api_base: str,
+    progress_callback=None
+) -> str:
+    """Scans for multi-line clusters of remaining source language text (e.g. English)
+    that bypassed the chunk-level >30% quality gate, and translates them in parallel."""
+    import litellm
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+    import time
+    import re
+
+    lines = text.split('\n')
+    eng_indicators = [' the ', ' and ', ' for ', ' that ', ' with ', ' from ', ' this ', ' have ']
+    
+    clusters = []
+    i = 0
+    while i < len(lines):
+        s = lines[i].strip()
+        if len(s) > 20:
+            ascii_ratio = sum(1 for c in s if ord(c) < 128) / len(s)
+            if ascii_ratio > 0.80 and any(w in s.lower() for w in eng_indicators):
+                start = i
+                while i < len(lines):
+                    s2 = lines[i].strip()
+                    if len(s2) < 10:
+                        i += 1; continue
+                    ascii_r2 = sum(1 for c in s2 if ord(c) < 128) / len(s2)
+                    if ascii_r2 > 0.80 and any(w in s2.lower() for w in eng_indicators):
+                        i += 1
+                    else:
+                        break
+                if i - start >= 2:
+                    clusters.append((max(0, start - 2), min(len(lines), i + 2)))
+        i += 1
+        
+    merged = []
+    for s, e in sorted(clusters):
+        if merged and s <= merged[-1][1] + 10:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+
+    real_clusters = []
+    for s, e in merged:
+        chunk = '\n'.join(lines[s:e])
+        # Filter bibliography citations
+        bib_indicators = ['print.', 'isbn', 'york:', 'london:', 'press,', 'university']
+        bib_ratio = sum(1 for l in lines[s:e] if any(b in l.lower() for b in bib_indicators)) / max(e-s, 1)
+        if bib_ratio < 0.3 and (e-s) >= 2:
+            real_clusters.append((s, e, chunk))
+
+    if not real_clusters:
+        return text
+
+    if progress_callback:
+        progress_callback(1, 1, f"🔬 Znaleziono {len(real_clusters)} klastrów surowego języka. Trwa głębokie retłumaczenie...")
+
+    results = {}
+    lock = threading.Lock()
+    
+    def _translate_cluster(idx, chunk_text):
+        prompt = f"""Przetłumacz CAŁY poniższy tekst.
+Zachowaj formatowanie Markdown. NIE zostawiaj niczego po angielsku (wyjątek: tytuły książek w cudzysłowach, nazwy własne).
+Oto tekst:
+
+{chunk_text}"""
+        
+        for attempt in range(3):
+            try:
+                kwargs = {
+                    "model": model_name,
+                    "api_key": api_key,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.1,
+                    "timeout": 120,
+                }
+                if api_base:
+                    kwargs["api_base"] = api_base
+                    
+                response = litellm.completion(**kwargs)
+                result = response.choices[0].message.content
+                if result and len(result.strip()) > 20:
+                    return result.strip()
+            except Exception:
+                time.sleep(4 * (attempt + 1))
+        return chunk_text
+
+    with ThreadPoolExecutor(max_workers=min(20, len(real_clusters))) as pool:
+        futures = {pool.submit(_translate_cluster, i, c): (s, e) for i, (s, e, c) in enumerate(real_clusters)}
+        for f in as_completed(futures):
+            s, e = futures[f]
+            results[(s, e)] = f.result()
+
+    for (start, end), translated in sorted(results.items(), reverse=True):
+        lines[start:end] = translated.split('\n')
+
+    return '\n'.join(lines)
 
 
