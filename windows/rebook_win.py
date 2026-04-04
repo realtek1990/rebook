@@ -232,14 +232,15 @@ class ReBookApp:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        # Try to use TkinterDnD for native drag&drop
+        # Always use CTk for proper dark mode theming
+        # TkinterDnD.Tk() bypasses CTk's theme engine
+        self.root = ctk.CTk()
+        self._dnd_available = False
         try:
-            from tkinterdnd2 import TkinterDnD, DND_FILES
-            self.root = TkinterDnD.Tk()
+            from tkinterdnd2 import DND_FILES
             self._dnd_available = True
         except ImportError:
-            self.root = ctk.CTk()
-            self._dnd_available = False
+            pass
         self.root.title("ReBook")
         self.root.geometry("680x760")
         self.root.minsize(600, 700)
