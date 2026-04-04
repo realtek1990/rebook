@@ -22,9 +22,15 @@
 
 ### Download (recommended)
 
-1. Download **[ReBook.dmg](https://github.com/realtek1990/rebook/releases/latest/download/ReBook.dmg)** (2.4 MB)
+1. Download **[ReBook.dmg](https://github.com/realtek1990/rebook/releases/latest/download/ReBook.dmg)** (2.8 MB)
 2. Open the DMG and drag **ReBook** to **Applications**
-3. Launch ReBook — the setup wizard will guide you
+3. **First launch**: Right-click (or Control+click) ReBook → **Open** → click **Open** in the dialog
+4. The setup wizard will guide you through dependency installation
+
+> ⚠️ **macOS Gatekeeper**: Since ReBook is not signed with an Apple Developer certificate, macOS may show a warning on first launch. Use Right-click → Open to bypass this. Alternatively, run in Terminal:
+> ```bash
+> xattr -cr /Applications/ReBook.app
+> ```
 
 On first launch, choose your installation type:
 
