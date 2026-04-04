@@ -187,10 +187,25 @@ class AppDelegate(NSObject):
     def applicationDidFinishLaunching_(self, note):
         global _app_delegate
         _app_delegate = self
-        self._buildMenu()
-        self._buildWindow()
-        self._buildSettingsSheet()
-        NSApp.activateIgnoringOtherApps_(True)
+        import traceback
+        _LOG = open("/tmp/rebook_crash.log", "w")
+        try:
+            _LOG.write("Building menu...\n"); _LOG.flush()
+            self._buildMenu()
+            _LOG.write("Building window...\n"); _LOG.flush()
+            self._buildWindow()
+            _LOG.write("Building settings sheet...\n"); _LOG.flush()
+            self._buildSettingsSheet()
+            _LOG.write("Activating...\n"); _LOG.flush()
+            self._window.makeKeyWindow()
+            NSApp.activateIgnoringOtherApps_(True)
+            _LOG.write("Done!\n"); _LOG.flush()
+        except Exception as e:
+            _LOG.write(f"CRASH: {e}\n")
+            traceback.print_exc(file=_LOG)
+            _LOG.flush()
+        finally:
+            _LOG.close()
 
     def applicationShouldTerminateAfterLastWindowClosed_(self, app):
         return True
@@ -220,11 +235,20 @@ class AppDelegate(NSObject):
 
     @objc.python_method
     def _buildWindow(self):
-        mask = NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask
+        mask = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
         self._window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(200, 200, W, H), mask, NSBackingStoreBuffered, False)
+            NSMakeRect(0, 0, W, H), mask, NSBackingStoreBuffered, False)
         self._window.setTitle_("ReBook")
-        self._window.center()
+        # Center on screen explicitly using screen coordinates
+        screen = NSScreen.mainScreen()
+        if screen:
+            sf = screen.visibleFrame()
+            x = sf.origin.x + (sf.size.width - W) / 2
+            y = sf.origin.y + (sf.size.height - H) / 2
+            self._window.setFrameOrigin_(NSMakePoint(x, y))
+        else:
+            self._window.center()
 
         # Używamy systemowego contentView okna bez nadpisywania go
         cv = self._window.contentView()
@@ -402,13 +426,14 @@ class AppDelegate(NSObject):
         cv.addSubview_(self._resultView)
 
         self._window.makeKeyAndOrderFront_(None)
+        self._window.orderFrontRegardless()
 
 
     @objc.python_method
     def _buildSettingsSheet(self):
         try:
             sw = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-                NSMakeRect(0, 0, 440, 420), NSTitledWindowMask, NSBackingStoreBuffered, False)
+                NSMakeRect(0, 0, 440, 420), NSWindowStyleMaskTitled, NSBackingStoreBuffered, False)
             sw.setTitle_(t("settings_title"))
             self._settingsWindow = sw
             

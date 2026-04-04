@@ -103,7 +103,7 @@ class InstallerDelegate(NSObject):
         W, H = 620, 540
         PAD = 28
         CW = W - 2 * PAD
-        mask = NSTitledWindowMask | NSClosableWindowMask | NSMiniaturizableWindowMask
+        mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(200, 200, W, H), mask, NSBackingStoreBuffered, False)
         self.window.setTitle_(t("inst_window_title"))
