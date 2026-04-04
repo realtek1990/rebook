@@ -424,12 +424,13 @@ class AppDelegate(NSObject):
     @objc.python_method
     def _buildSettingsSheet(self):
         try:
+            SW_H = 560
             sw = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-                NSMakeRect(0, 0, 440, 420), NSWindowStyleMaskTitled, NSBackingStoreBuffered, False)
+                NSMakeRect(0, 0, 440, SW_H), NSWindowStyleMaskTitled, NSBackingStoreBuffered, False)
             sw.setTitle_(t("settings_title"))
             self._settingsWindow = sw
             
-            sv = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 440, 420))
+            sv = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 440, SW_H))
             sw.setContentView_(sv)
             
             p = 20
@@ -515,6 +516,38 @@ class AppDelegate(NSObject):
             llmSec = _label(t("settings_llm_header"), size=11, bold=True, color=NSColor.secondaryLabelColor())
             llmSec.setFrame_(NSMakeRect(p, y, cw, 14))
             sv.addSubview_(llmSec)
+            y += 24
+
+            # ── Marker OCR Section ────────────────────────────────
+            sep3 = NSBox.alloc().initWithFrame_(NSMakeRect(p, y, cw, 1))
+            sep3.setBoxType_(NSBoxSeparator)
+            sv.addSubview_(sep3)
+            y += 16
+
+            markerSec = _label(t("settings_marker_header"), size=11, bold=True, color=NSColor.secondaryLabelColor())
+            markerSec.setFrame_(NSMakeRect(p, y, cw, 14))
+            sv.addSubview_(markerSec)
+            y += 22
+
+            import converter
+            marker_ok = converter.is_marker_installed()
+            status_key = "settings_marker_installed" if marker_ok else "settings_marker_not_installed"
+            self._markerStatusLabel = _label(t(status_key), size=11,
+                color=NSColor.systemGreenColor() if marker_ok else NSColor.systemOrangeColor())
+            self._markerStatusLabel.setFrame_(NSMakeRect(p, y, cw, 14))
+            sv.addSubview_(self._markerStatusLabel)
+            y += 24
+
+            if not marker_ok:
+                self._markerInstallBtn = NSButton.alloc().initWithFrame_(NSMakeRect(p, y, cw, 32))
+                self._markerInstallBtn.setBezelStyle_(NSBezelStyleRounded)
+                self._markerInstallBtn.setTitle_(t("settings_marker_install_btn"))
+                self._markerInstallBtn.setTarget_(self)
+                self._markerInstallBtn.setAction_("installMarker:")
+                sv.addSubview_(self._markerInstallBtn)
+            else:
+                self._markerInstallBtn = None
+
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -573,6 +606,45 @@ class AppDelegate(NSObject):
         models = MODELS.get(prov_key, [])
         if models:
             self._modelField.addItemsWithObjectValues_(models)
+
+    @objc.IBAction
+    def installMarker_(self, sender):
+        if self._markerInstallBtn:
+            self._markerInstallBtn.setEnabled_(False)
+            self._markerInstallBtn.setTitle_(t("settings_marker_installing"))
+        threading.Thread(target=self._doInstallMarker, daemon=True).start()
+
+    @objc.python_method
+    def _doInstallMarker(self):
+        import subprocess, sys
+        venv_pip = Path.home() / ".pdf2epub-app" / "env" / "bin" / "pip"
+        try:
+            result = subprocess.run(
+                [str(venv_pip), "install", "marker-pdf"],
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode == 0:
+                self._scheduleUI("_markerInstallDone", None)
+            else:
+                self._scheduleUI("_markerInstallError", result.stderr[-300:])
+        except Exception as e:
+            self._scheduleUI("_markerInstallError", str(e))
+
+    @objc.python_method
+    def _markerInstallDone(self, _):
+        if self._markerInstallBtn:
+            self._markerInstallBtn.setHidden_(True)
+        self._markerStatusLabel.setStringValue_(t("settings_marker_done"))
+        self._markerStatusLabel.setTextColor_(NSColor.systemGreenColor())
+
+    @objc.python_method
+    def _markerInstallError(self, msg):
+        if self._markerInstallBtn:
+            self._markerInstallBtn.setEnabled_(True)
+            self._markerInstallBtn.setTitle_(t("settings_marker_install_btn"))
+        self._markerStatusLabel.setStringValue_(t("settings_marker_error"))
+        self._markerStatusLabel.setTextColor_(NSColor.systemRedColor())
+        self._showAlert(t("settings_marker_error"), str(msg))
 
     @objc.IBAction
     def openSettings_(self, sender):

@@ -446,7 +446,7 @@ class ReBookApp:
         ctk = self.ctk
         win = ctk.CTkToplevel(self.root)
         win.title(t("settings_title"))
-        win.geometry("460x540")
+        win.geometry("460x680")
         win.resizable(False, False)
         win.grab_set()
 
@@ -508,6 +508,24 @@ class ReBookApp:
         smtp_pass.insert(0, cfg.get("smtp_pass", ""))
         smtp_pass.pack(fill="x", padx=20, pady=2)
 
+        # ── Marker OCR Section ──
+        ctk.CTkLabel(win, text=t("settings_marker_header"),
+                     font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
+            anchor="w", padx=20, pady=(16, 4))
+
+        marker_bin = WORKSPACE / "env" / "Scripts" / "marker_single.exe"
+        marker_ok = marker_bin.exists()
+        status_key = "settings_marker_installed" if marker_ok else "settings_marker_not_installed"
+        marker_status = ctk.CTkLabel(win, text=t(status_key), font=ctk.CTkFont(size=11),
+            text_color=("#2d8f2d", "#5dce5d") if marker_ok else ("orange", "orange"))
+        marker_status.pack(anchor="w", padx=20, pady=(2, 4))
+
+        if not marker_ok:
+            marker_btn = ctk.CTkButton(win, text=t("settings_marker_install_btn"),
+                                        height=32, command=lambda: self._install_marker_win(
+                                            win, marker_btn, marker_status))
+            marker_btn.pack(fill="x", padx=20, pady=2)
+
         # Buttons
         btn_row = ctk.CTkFrame(win, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=16)
@@ -527,6 +545,31 @@ class ReBookApp:
         ctk.CTkButton(btn_row, text=t("settings_save"), command=_save).pack(side="right", padx=4)
         ctk.CTkButton(btn_row, text=t("settings_cancel"), fg_color="gray50",
                       command=win.destroy).pack(side="right", padx=4)
+
+    def _install_marker_win(self, win, btn, status_label):
+        btn.configure(state="disabled", text=t("settings_marker_installing"))
+        def _do():
+            pip = str(WORKSPACE / "env" / "Scripts" / "pip.exe")
+            try:
+                r = subprocess.run([pip, "install", "marker-pdf"],
+                                   capture_output=True, text=True, timeout=600)
+                if r.returncode == 0:
+                    win.after(0, lambda: (
+                        btn.pack_forget(),
+                        status_label.configure(text=t("settings_marker_done"),
+                                               text_color=("#2d8f2d", "#5dce5d")),
+                    ))
+                else:
+                    win.after(0, lambda: (
+                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
+                        status_label.configure(text=t("settings_marker_error"), text_color="red"),
+                    ))
+            except Exception as e:
+                win.after(0, lambda: (
+                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
+                    status_label.configure(text=t("settings_marker_error"), text_color="red"),
+                ))
+        threading.Thread(target=_do, daemon=True).start()
 
     # ── Conversion ──
 
