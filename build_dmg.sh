@@ -19,6 +19,12 @@ mkdir -p "${STAGING}"
 cp -R "${SCRIPT_DIR}/${APP_NAME}.app" "${STAGING}/"
 ln -sf /Applications "${STAGING}/Applications"
 
+# Sign the app bundle (adhoc) — required for macOS to allow launch
+echo "🔏 Signing ${APP_NAME}.app..."
+codesign --force --deep --sign - "${STAGING}/${APP_NAME}.app"
+codesign --verify --deep "${STAGING}/${APP_NAME}.app"
+echo "   Signature OK"
+
 # Build compressed DMG
 hdiutil create \
     -volname "${APP_NAME}" \

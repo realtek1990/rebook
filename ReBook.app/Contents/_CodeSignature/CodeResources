@@ -26,15 +26,15 @@
 		</data>
 		<key>Resources/app/__pycache__/native_gui.cpython-311.pyc</key>
 		<data>
-		tgLGs2ob1G08tEtUXdIbo39qFl8=
+		Z0o7kxF0S02E8oLQZ0TZ678cfMQ=
 		</data>
 		<key>Resources/app/converter.py</key>
 		<data>
-		BLDfRciWHm2jxQktr1JaLRRJld8=
+		ottoxmMQjQ5kN7JGGyh1tEjf2tE=
 		</data>
 		<key>Resources/app/corrector.py</key>
 		<data>
-		P1Pb2R7RX+a2mcMEZks5Xai+3uU=
+		YSK1z8hHaTkocDMB+WFhLHhclH4=
 		</data>
 		<key>Resources/app/i18n.py</key>
 		<data>
@@ -42,7 +42,7 @@
 		</data>
 		<key>Resources/app/image_translator.py</key>
 		<data>
-		ctmVz1MpgVN19ptMlql2ekV9L7c=
+		vEceEHsgr0NCRTVBmKAOX97bVCE=
 		</data>
 		<key>Resources/app/manual_convert.py</key>
 		<data>
@@ -50,7 +50,7 @@
 		</data>
 		<key>Resources/app/native_gui.py</key>
 		<data>
-		8oWEUg9zrqMymdEcEcckza/b4PU=
+		P/tiuWX7J8ejaBDnLP1u13l5Kec=
 		</data>
 		<key>Resources/app/server.py</key>
 		<data>
@@ -106,21 +106,21 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			HKhHQ8ZBIHeoS6MuSmKT7m7KnbQN6HxBP/JixYzKzGA=
+			QwgmYyY6ttVsfhC23NXltXx5ttqAEhhNAw0DpkUGFnk=
 			</data>
 		</dict>
 		<key>Resources/app/converter.py</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			LRxKJbNp5DpVS2BvlV8EtqU9VGRXIrmHvVfaiY1yvEo=
+			D9YDq7T1wm0N8gyNSAZFTtO/6WZnHDT88l0t2tjSWFM=
 			</data>
 		</dict>
 		<key>Resources/app/corrector.py</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			P7glng/PB0SrTbTsDFgwfZN05nLmS9Ul3MO18ujsvF8=
+			T9e2DkViv5L8lNO77HJ5ipAFhBmyp9RRD6KKdeZUUHY=
 			</data>
 		</dict>
 		<key>Resources/app/i18n.py</key>
@@ -134,7 +134,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			KSUqKDeHqB3pKr3m9CDlBkqmjnKylylq4Phbr9HvGEQ=
+			yaEzhEEYxzRUJ9ohBB6OP5aCvcmWCoQsmOQKqebAorY=
 			</data>
 		</dict>
 		<key>Resources/app/manual_convert.py</key>
@@ -148,7 +148,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			zbzEhsoSvSZ7TxC8XfIqTDlRcJC41tAAaXKcEwy8Bj0=
+			W1GYoORT/YaFzO4wf5iLFPSuYjbJpewpvPsu6AxhEiM=
 			</data>
 		</dict>
 		<key>Resources/app/server.py</key>

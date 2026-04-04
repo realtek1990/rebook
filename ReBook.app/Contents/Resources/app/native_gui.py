@@ -196,7 +196,6 @@ class AppDelegate(NSObject):
         except Exception as e:
             import traceback, sys
             traceback.print_exc()
-            # Also write to crash log for diagnostics
             with open("/tmp/rebook_crash.log", "w") as f:
                 traceback.print_exc(file=f)
 
