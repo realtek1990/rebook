@@ -106,11 +106,11 @@ class InstallerWizard:
         # Title
         ctk.CTkLabel(f, text=t("inst_title"), font=ctk.CTkFont(size=22, weight="bold")).pack(pady=(24, 4))
         ctk.CTkLabel(f, text=t("inst_subtitle"), font=ctk.CTkFont(size=12),
-                     text_color="gray").pack(pady=(0, 16))
+                     text_color=("gray50", "gray70")).pack(pady=(0, 16))
 
         # Section header
         ctk.CTkLabel(f, text=t("inst_section_header"), font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color="gray").pack(anchor="w", padx=28, pady=(8, 4))
+                     text_color=("gray50", "gray70")).pack(anchor="w", padx=28, pady=(8, 4))
 
         # Light option
         self._radio_var = ctk.StringVar(value="light")
@@ -120,7 +120,7 @@ class InstallerWizard:
                           variable=self._radio_var, value="light",
                           font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(light_frame, text=t("inst_light_desc"), font=ctk.CTkFont(size=11),
-                     justify="left", text_color="gray").pack(anchor="w", padx=32, pady=(0, 10))
+                     justify="left", text_color=("gray50", "gray70")).pack(anchor="w", padx=32, pady=(0, 10))
 
         # Full option
         full_frame = ctk.CTkFrame(f, corner_radius=8)
@@ -129,7 +129,7 @@ class InstallerWizard:
                           variable=self._radio_var, value="full",
                           font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
         ctk.CTkLabel(full_frame, text=t("inst_full_desc"), font=ctk.CTkFont(size=11),
-                     justify="left", text_color="gray").pack(anchor="w", padx=32, pady=(0, 10))
+                     justify="left", text_color=("gray50", "gray70")).pack(anchor="w", padx=32, pady=(0, 10))
 
         # Progress area (hidden initially)
         self._progress_frame = ctk.CTkFrame(f, corner_radius=8)
@@ -262,11 +262,11 @@ class ReBookApp:
         ctk.CTkLabel(header, text="ReBook", font=ctk.CTkFont(size=24, weight="bold")).pack(side="left")
         gear_btn = ctk.CTkButton(header, text="⚙️", width=36, height=36,
                                   command=self._open_settings, fg_color="transparent",
-                                  text_color=("gray40", "gray70"),
+                                  text_color=("gray40", "gray80"),
                                   font=ctk.CTkFont(size=18))
         gear_btn.pack(side="right")
         ctk.CTkLabel(f, text=t("app_subtitle"), font=ctk.CTkFont(size=12),
-                     text_color="gray").pack(anchor="w", padx=24, pady=(0, 12))
+                     text_color=("gray50", "gray70")).pack(anchor="w", padx=24, pady=(0, 12))
 
         # ── Drop Zone / File Badge ──
         self._drop_frame = ctk.CTkFrame(f, height=120, corner_radius=10,
@@ -277,7 +277,7 @@ class ReBookApp:
         ctk.CTkLabel(self._drop_frame, text=t("drop_title"),
                      font=ctk.CTkFont(size=13, weight="bold")).pack()
         self._drop_sub = ctk.CTkLabel(self._drop_frame, text=t("drop_subtitle"),
-                                       font=ctk.CTkFont(size=11), text_color="gray")
+                                       font=ctk.CTkFont(size=11), text_color=("gray50", "gray70"))
         self._drop_sub.pack()
         self._drop_frame.bind("<Button-1>", lambda e: self._open_file())
         for child in self._drop_frame.winfo_children():
@@ -296,7 +296,7 @@ class ReBookApp:
         self._file_frame = ctk.CTkFrame(f, height=70, corner_radius=10)
         self._file_label = ctk.CTkLabel(self._file_frame, text="—",
                                         font=ctk.CTkFont(size=13, weight="bold"))
-        self._size_label = ctk.CTkLabel(self._file_frame, text="", text_color="gray",
+        self._size_label = ctk.CTkLabel(self._file_frame, text="", text_color=("gray50", "gray70"),
                                         font=ctk.CTkFont(size=11))
         self._remove_btn = ctk.CTkButton(self._file_frame, text=t("remove_btn"), width=60,
                                           height=28, command=self._remove_file,
@@ -305,7 +305,7 @@ class ReBookApp:
         # ── Options ──
         ctk.CTkLabel(f, text=t("options_header"),
                      font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color="gray").pack(anchor="w", padx=28, pady=(16, 4))
+                     text_color=("gray40", "#90B0D0")).pack(anchor="w", padx=28, pady=(16, 4))
 
         # Format
         fmt_row = ctk.CTkFrame(f, fg_color="transparent")
@@ -339,13 +339,13 @@ class ReBookApp:
         r1 = ctk.CTkFrame(self._lang_frame, fg_color="transparent")
         r1.pack(fill="x", pady=2)
         ctk.CTkLabel(r1, text=t("lang_from_label"), width=110,
-                     font=ctk.CTkFont(size=11), text_color="gray").pack(side="left")
+                     font=ctk.CTkFont(size=11), text_color=("gray50", "gray70")).pack(side="left")
         self._lang_from = ctk.CTkEntry(r1, placeholder_text=t("lang_from_placeholder"))
         self._lang_from.pack(side="left", fill="x", expand=True)
         r2 = ctk.CTkFrame(self._lang_frame, fg_color="transparent")
         r2.pack(fill="x", pady=2)
         ctk.CTkLabel(r2, text=t("lang_to_label"), width=110,
-                     font=ctk.CTkFont(size=11), text_color="gray").pack(side="left")
+                     font=ctk.CTkFont(size=11), text_color=("gray50", "gray70")).pack(side="left")
         self._lang_to = ctk.CTkEntry(r2)
         self._lang_to.insert(0, "polski")
         self._lang_to.pack(side="left", fill="x", expand=True)
@@ -360,7 +360,7 @@ class ReBookApp:
         # Progress
         self._progress_bar = ctk.CTkProgressBar(f, width=600)
         self._progress_bar.set(0)
-        self._stage_label = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=11), text_color="gray")
+        self._stage_label = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=11), text_color=("gray50", "gray70"))
 
         # Log
         self._log_box = ctk.CTkTextbox(f, height=130, font=ctk.CTkFont(family="Consolas", size=10),
@@ -370,7 +370,7 @@ class ReBookApp:
         self._result_frame = ctk.CTkFrame(f, fg_color="transparent")
         self._result_label = ctk.CTkLabel(self._result_frame, text=t("conversion_done"),
                                           font=ctk.CTkFont(size=14, weight="bold"),
-                                          text_color="green")
+                                          text_color=("#2d8f2d", "#5dce5d"))
         self._result_label.pack(pady=(4, 8))
         btn_row = ctk.CTkFrame(self._result_frame, fg_color="transparent")
         btn_row.pack()
@@ -454,7 +454,7 @@ class ReBookApp:
 
         # Provider
         ctk.CTkLabel(win, text=t("settings_llm_header"),
-                     font=ctk.CTkFont(size=11, weight="bold"), text_color="gray").pack(
+                     font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
             anchor="w", padx=20, pady=(16, 4))
 
         provs = _providers()
@@ -490,7 +490,7 @@ class ReBookApp:
 
         # Kindle section
         ctk.CTkLabel(win, text=t("settings_kindle_header"),
-                     font=ctk.CTkFont(size=11, weight="bold"), text_color="gray").pack(
+                     font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
             anchor="w", padx=20, pady=(16, 4))
 
         ctk.CTkLabel(win, text=t("settings_kindle_email")).pack(anchor="w", padx=20, pady=(4, 0))
