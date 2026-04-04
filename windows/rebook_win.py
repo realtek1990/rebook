@@ -372,16 +372,19 @@ class ReBookApp:
                                         state="disabled")
 
         # Result area
-        self._result_frame = ctk.CTkFrame(f, fg_color="transparent")
+        self._result_frame = ctk.CTkFrame(f, corner_radius=10)
         self._result_label = ctk.CTkLabel(self._result_frame, text=t("conversion_done"),
-                                          font=ctk.CTkFont(size=14, weight="bold"),
+                                          font=ctk.CTkFont(size=16, weight="bold"),
                                           text_color=("#2d8f2d", "#5dce5d"))
-        self._result_label.pack(pady=(4, 8))
+        self._result_label.pack(pady=(12, 8))
         btn_row = ctk.CTkFrame(self._result_frame, fg_color="transparent")
-        btn_row.pack()
-        ctk.CTkButton(btn_row, text=t("save_btn"), command=self._save_result).pack(side="left", padx=4)
+        btn_row.pack(pady=(0, 12))
+        ctk.CTkButton(btn_row, text=t("save_btn"), command=self._save_result,
+                      height=36, font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=4)
+        ctk.CTkButton(btn_row, text="📁 Open folder", command=self._open_output_folder,
+                      height=36, fg_color="#2d6a4f").pack(side="left", padx=4)
         ctk.CTkButton(btn_row, text=t("kindle_btn"), command=self._send_kindle,
-                      fg_color="gray50").pack(side="left", padx=4)
+                      height=36, fg_color="gray50").pack(side="left", padx=4)
 
     # ── File handling ──
 
@@ -657,8 +660,15 @@ class ReBookApp:
         self._convert_btn.configure(state="normal", text=t("convert_btn"))
         self._progress_bar.set(1.0)
         self._stage_label.configure(text=t("done"))
+        self._log_box.pack_forget()  # hide log to make room for result
         self._result_frame.pack(fill="x", padx=24, pady=8)
         self._append_log(t("all_done", name=Path(output_path).name))
+        # Auto-open containing folder so user can find the file
+        try:
+            folder = str(Path(output_path).parent)
+            os.startfile(folder)
+        except Exception:
+            pass
 
     def _conversion_error(self, error_msg):
         self._converting = False
@@ -681,6 +691,14 @@ class ReBookApp:
         )
         if dest:
             shutil.copy2(str(src), dest)
+
+    def _open_output_folder(self):
+        if not self._output_path: return
+        folder = str(Path(self._output_path).parent)
+        try:
+            os.startfile(folder)
+        except Exception:
+            pass
 
     def _send_kindle(self):
         if not self._output_path: return
