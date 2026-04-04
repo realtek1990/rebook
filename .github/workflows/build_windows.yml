@@ -61,6 +61,8 @@ jobs:
             --add-data "image_translator.py;." ^
             --add-data "manual_convert.py;." ^
             --add-data "requirements.txt;." ^
+            --collect-all customtkinter ^
+            --collect-data litellm ^
             --hidden-import customtkinter ^
             --hidden-import litellm ^
             --hidden-import ebooklib ^
@@ -68,6 +70,8 @@ jobs:
             --hidden-import bs4 ^
             --hidden-import markdownify ^
             --hidden-import PIL ^
+            --hidden-import fitz ^
+            --hidden-import google.genai ^
             rebook_win.py
 
       - name: Stage output

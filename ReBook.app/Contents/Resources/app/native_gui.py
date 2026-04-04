@@ -187,25 +187,18 @@ class AppDelegate(NSObject):
     def applicationDidFinishLaunching_(self, note):
         global _app_delegate
         _app_delegate = self
-        import traceback
-        _LOG = open("/tmp/rebook_crash.log", "w")
         try:
-            _LOG.write("Building menu...\n"); _LOG.flush()
             self._buildMenu()
-            _LOG.write("Building window...\n"); _LOG.flush()
             self._buildWindow()
-            _LOG.write("Building settings sheet...\n"); _LOG.flush()
             self._buildSettingsSheet()
-            _LOG.write("Activating...\n"); _LOG.flush()
             self._window.makeKeyWindow()
             NSApp.activateIgnoringOtherApps_(True)
-            _LOG.write("Done!\n"); _LOG.flush()
         except Exception as e:
-            _LOG.write(f"CRASH: {e}\n")
-            traceback.print_exc(file=_LOG)
-            _LOG.flush()
-        finally:
-            _LOG.close()
+            import traceback, sys
+            traceback.print_exc()
+            # Also write to crash log for diagnostics
+            with open("/tmp/rebook_crash.log", "w") as f:
+                traceback.print_exc(file=f)
 
     def applicationShouldTerminateAfterLastWindowClosed_(self, app):
         return True

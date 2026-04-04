@@ -635,11 +635,22 @@ class ReBookApp:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    # Ensure customtkinter is available
+    # ── PyInstaller bundle: everything is already inside the .exe ─────────
+    frozen = getattr(sys, 'frozen', False)
+
+    if frozen:
+        # All deps are bundled — skip venv/pip, go straight to app
+        # Ensure WORKSPACE exists for config
+        WORKSPACE.mkdir(parents=True, exist_ok=True)
+        CORE_MARKER.touch()  # mark as "installed"
+        app = ReBookApp()
+        app.run()
+        return
+
+    # ── Running from source (dev mode) ────────────────────────────────────
     try:
         import customtkinter  # noqa
     except ImportError:
-        # Bootstrap: install customtkinter into current Python
         subprocess.run([sys.executable, "-m", "pip", "install", "customtkinter"],
                       capture_output=True)
 
