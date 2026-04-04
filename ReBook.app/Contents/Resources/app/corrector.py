@@ -10,7 +10,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Domyślny timeout openai to 120s, co powoduje ciche ReadTimeout + retry w nieskończoność.
 os.environ['OPENAI_TIMEOUT'] = '600'
 
-WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
+if sys.platform == "win32":
+    WORKSPACE_DIR = Path.home() / ".rebook"
+else:
+    WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
 CONFIG_FILE = WORKSPACE_DIR / "config.json"
 
 def get_config() -> dict:

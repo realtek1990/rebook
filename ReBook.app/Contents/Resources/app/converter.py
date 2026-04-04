@@ -17,8 +17,12 @@ from ebooklib import epub
 import corrector
 import image_translator
 
-WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
-MARKER_BIN = Path(sys.prefix) / "bin" / "marker_single"
+if sys.platform == "win32":
+    WORKSPACE_DIR = Path.home() / ".rebook"
+    MARKER_BIN = Path(sys.prefix) / "Scripts" / "marker_single.exe"
+else:
+    WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
+    MARKER_BIN = Path(sys.prefix) / "bin" / "marker_single"
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────

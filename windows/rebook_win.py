@@ -12,7 +12,11 @@ WORKSPACE = Path.home() / ".rebook"
 VENV_DIR = WORKSPACE / "env"
 CONFIG_FILE = WORKSPACE / "config.json"
 CORE_MARKER = WORKSPACE / ".core_installed"
-APP_DIR = Path(__file__).parent
+# In PyInstaller frozen mode, data files are in sys._MEIPASS
+if getattr(sys, 'frozen', False):
+    APP_DIR = Path(sys._MEIPASS)
+else:
+    APP_DIR = Path(__file__).parent
 
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
@@ -411,7 +415,7 @@ class ReBookApp:
         ctk = self.ctk
         win = ctk.CTkToplevel(self.root)
         win.title(t("settings_title"))
-        win.geometry("460x420")
+        win.geometry("460x540")
         win.resizable(False, False)
         win.grab_set()
 
