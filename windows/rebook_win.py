@@ -83,7 +83,7 @@ class InstallerWizard:
     def __init__(self):
         import customtkinter as ctk
         self.ctk = ctk
-        ctk.set_appearance_mode("system")
+        ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
         self.root = ctk.CTkToplevel() if hasattr(ctk, '_default_root') and ctk._default_root else ctk.CTk()
@@ -229,7 +229,7 @@ class ReBookApp:
     def __init__(self):
         import customtkinter as ctk
         self.ctk = ctk
-        ctk.set_appearance_mode("system")
+        ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
         # Try to use TkinterDnD for native drag&drop
@@ -262,11 +262,11 @@ class ReBookApp:
         ctk.CTkLabel(header, text="ReBook", font=ctk.CTkFont(size=24, weight="bold")).pack(side="left")
         gear_btn = ctk.CTkButton(header, text="⚙️", width=36, height=36,
                                   command=self._open_settings, fg_color="transparent",
-                                  text_color=("gray40", "gray80"),
+                                  text_color=("gray20", "gray80"),
                                   font=ctk.CTkFont(size=18))
         gear_btn.pack(side="right")
         ctk.CTkLabel(f, text=t("app_subtitle"), font=ctk.CTkFont(size=12),
-                     text_color=("gray50", "gray70")).pack(anchor="w", padx=24, pady=(0, 12))
+                     text_color=("gray30", "gray70")).pack(anchor="w", padx=24, pady=(0, 12))
 
         # ── Drop Zone / File Badge ──
         self._drop_frame = ctk.CTkFrame(f, height=120, corner_radius=10,
@@ -277,7 +277,7 @@ class ReBookApp:
         ctk.CTkLabel(self._drop_frame, text=t("drop_title"),
                      font=ctk.CTkFont(size=13, weight="bold")).pack()
         self._drop_sub = ctk.CTkLabel(self._drop_frame, text=t("drop_subtitle"),
-                                       font=ctk.CTkFont(size=11), text_color=("gray50", "gray70"))
+                                       font=ctk.CTkFont(size=11), text_color=("gray30", "gray70"))
         self._drop_sub.pack()
         self._drop_frame.bind("<Button-1>", lambda e: self._open_file())
         for child in self._drop_frame.winfo_children():
@@ -296,7 +296,7 @@ class ReBookApp:
         self._file_frame = ctk.CTkFrame(f, height=70, corner_radius=10)
         self._file_label = ctk.CTkLabel(self._file_frame, text="—",
                                         font=ctk.CTkFont(size=13, weight="bold"))
-        self._size_label = ctk.CTkLabel(self._file_frame, text="", text_color=("gray50", "gray70"),
+        self._size_label = ctk.CTkLabel(self._file_frame, text="", text_color=("gray30", "gray70"),
                                         font=ctk.CTkFont(size=11))
         self._remove_btn = ctk.CTkButton(self._file_frame, text=t("remove_btn"), width=60,
                                           height=28, command=self._remove_file,
@@ -305,12 +305,13 @@ class ReBookApp:
         # ── Options ──
         ctk.CTkLabel(f, text=t("options_header"),
                      font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color=("gray40", "#90B0D0")).pack(anchor="w", padx=28, pady=(16, 4))
+                     text_color=("#1a5276", "#90B0D0")).pack(anchor="w", padx=28, pady=(16, 4))
 
         # Format
         fmt_row = ctk.CTkFrame(f, fg_color="transparent")
         fmt_row.pack(fill="x", padx=24, pady=4)
-        ctk.CTkLabel(fmt_row, text=t("format_label"), font=ctk.CTkFont(size=13)).pack(side="left")
+        ctk.CTkLabel(fmt_row, text=t("format_label"), font=ctk.CTkFont(size=13),
+                     text_color=("gray10", "gray90")).pack(side="left")
         self._format_var = ctk.StringVar(value="EPUB")
         self._format_menu = ctk.CTkSegmentedButton(fmt_row, values=FORMATS,
                                                      variable=self._format_var)
@@ -318,12 +319,14 @@ class ReBookApp:
 
         # AI Correction
         self._ai_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(f, text=t("ai_check"), variable=self._ai_var).pack(
+        ctk.CTkCheckBox(f, text=t("ai_check"), variable=self._ai_var,
+                        text_color=("gray10", "gray90")).pack(
             anchor="w", padx=28, pady=4)
 
         # Translation mode
         self._translate_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(f, text=t("translate_check"), variable=self._translate_var,
+                        text_color=("gray10", "gray90"),
                         command=self._toggle_translate).pack(anchor="w", padx=28, pady=4)
 
         # Translate images (hidden, shown when translate enabled)
@@ -332,6 +335,7 @@ class ReBookApp:
             f, text=t("translate_images_check"),
             variable=self._translate_img_var,
             font=ctk.CTkFont(size=11),
+            text_color=("gray10", "gray90"),
         )
 
         # Language fields (hidden)
@@ -339,13 +343,13 @@ class ReBookApp:
         r1 = ctk.CTkFrame(self._lang_frame, fg_color="transparent")
         r1.pack(fill="x", pady=2)
         ctk.CTkLabel(r1, text=t("lang_from_label"), width=110,
-                     font=ctk.CTkFont(size=11), text_color=("gray50", "gray70")).pack(side="left")
+                     font=ctk.CTkFont(size=11), text_color=("gray30", "gray70")).pack(side="left")
         self._lang_from = ctk.CTkEntry(r1, placeholder_text=t("lang_from_placeholder"))
         self._lang_from.pack(side="left", fill="x", expand=True)
         r2 = ctk.CTkFrame(self._lang_frame, fg_color="transparent")
         r2.pack(fill="x", pady=2)
         ctk.CTkLabel(r2, text=t("lang_to_label"), width=110,
-                     font=ctk.CTkFont(size=11), text_color=("gray50", "gray70")).pack(side="left")
+                     font=ctk.CTkFont(size=11), text_color=("gray30", "gray70")).pack(side="left")
         self._lang_to = ctk.CTkEntry(r2)
         self._lang_to.insert(0, "polski")
         self._lang_to.pack(side="left", fill="x", expand=True)
