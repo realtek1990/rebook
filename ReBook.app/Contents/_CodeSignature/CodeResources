@@ -8,26 +8,6 @@
 		<data>
 		W6Ns5uElEo+AlXIzJC9SufaEkKs=
 		</data>
-		<key>Resources/app/__pycache__/converter.cpython-311.pyc</key>
-		<data>
-		XNkNncJlhOK6X6SavAL7sEnSbo4=
-		</data>
-		<key>Resources/app/__pycache__/corrector.cpython-311.pyc</key>
-		<data>
-		/nTTyyExTJYi8CblA8K64YZ5M7o=
-		</data>
-		<key>Resources/app/__pycache__/i18n.cpython-311.pyc</key>
-		<data>
-		lAIC+zPj7JiCDsvLocAaU61NQEk=
-		</data>
-		<key>Resources/app/__pycache__/image_translator.cpython-311.pyc</key>
-		<data>
-		QVdAtc+hFQEZweG/F4ecj3qfG1Q=
-		</data>
-		<key>Resources/app/__pycache__/native_gui.cpython-311.pyc</key>
-		<data>
-		Z0o7kxF0S02E8oLQZ0TZ678cfMQ=
-		</data>
 		<key>Resources/app/converter.py</key>
 		<data>
 		ottoxmMQjQ5kN7JGGyh1tEjf2tE=
@@ -72,41 +52,6 @@
 			<key>hash2</key>
 			<data>
 			Mw5+AgO22TFzN5jqq0TTANsj/0B4FpNrucmh6ejNqII=
-			</data>
-		</dict>
-		<key>Resources/app/__pycache__/converter.cpython-311.pyc</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			r0aBpJyAvsU1s3ovvPimAH0cJ0zlv3mC3QhZROxEPGk=
-			</data>
-		</dict>
-		<key>Resources/app/__pycache__/corrector.cpython-311.pyc</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			O8fVuGJYaINlXA5T/sk9g0HR4R69V7B/Z6/r3AhYOUQ=
-			</data>
-		</dict>
-		<key>Resources/app/__pycache__/i18n.cpython-311.pyc</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			CNAWAuXU691+tb3NVuBoU+kfOhojVjmMARV6vFfEg7g=
-			</data>
-		</dict>
-		<key>Resources/app/__pycache__/image_translator.cpython-311.pyc</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			d3yxH/8Q6jrSHzc17O/qdYvIfp98o59X6AL1NymlO3g=
-			</data>
-		</dict>
-		<key>Resources/app/__pycache__/native_gui.cpython-311.pyc</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			QwgmYyY6ttVsfhC23NXltXx5ttqAEhhNAw0DpkUGFnk=
 			</data>
 		</dict>
 		<key>Resources/app/converter.py</key>

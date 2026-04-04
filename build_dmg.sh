@@ -19,6 +19,10 @@ mkdir -p "${STAGING}"
 cp -R "${SCRIPT_DIR}/${APP_NAME}.app" "${STAGING}/"
 ln -sf /Applications "${STAGING}/Applications"
 
+# Remove __pycache__ — .pyc files change on every run and invalidate codesign
+echo "🧹 Cleaning __pycache__..."
+find "${STAGING}/${APP_NAME}.app" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
 # Sign the app bundle (adhoc) — required for macOS to allow launch
 echo "🔏 Signing ${APP_NAME}.app..."
 codesign --force --deep --sign - "${STAGING}/${APP_NAME}.app"

@@ -26,7 +26,9 @@ def run_app():
     """Launch the native macOS GUI."""
     app_dir = Path(__file__).parent.parent / "Resources" / "app"
     os.chdir(app_dir)
-    os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), "native_gui.py"])
+    # Prevent .pyc creation — it invalidates the app bundle code signature
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+    os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), "-B", "native_gui.py"])
 
 
 # ── If already installed, just run ────────────────────────────────────────
