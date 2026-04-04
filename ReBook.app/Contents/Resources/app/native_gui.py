@@ -316,8 +316,8 @@ class AppDelegate(NSObject):
 
         self._formatCtrl = NSSegmentedControl.alloc().initWithFrame_(NSMakeRect(PAD + 150, top - 24, 260, 26))
         self._formatCtrl.setSegmentCount_(3)
-        for i, t in enumerate(FORMATS):
-            self._formatCtrl.setLabel_forSegment_(t, i)
+        for i, fmt in enumerate(FORMATS):
+            self._formatCtrl.setLabel_forSegment_(fmt, i)
             self._formatCtrl.setWidth_forSegment_(80, i)
         self._formatCtrl.setSelectedSegment_(0)
         self._formatCtrl.setSegmentStyle_(NSSegmentStyleRounded)
