@@ -232,7 +232,14 @@ class ReBookApp:
         ctk.set_appearance_mode("system")
         ctk.set_default_color_theme("blue")
 
-        self.root = ctk.CTk()
+        # Try to use TkinterDnD for native drag&drop
+        try:
+            from tkinterdnd2 import TkinterDnD, DND_FILES
+            self.root = TkinterDnD.Tk()
+            self._dnd_available = True
+        except ImportError:
+            self.root = ctk.CTk()
+            self._dnd_available = False
         self.root.title("ReBook")
         self.root.geometry("680x760")
         self.root.minsize(600, 700)
@@ -275,6 +282,15 @@ class ReBookApp:
         self._drop_frame.bind("<Button-1>", lambda e: self._open_file())
         for child in self._drop_frame.winfo_children():
             child.bind("<Button-1>", lambda e: self._open_file())
+
+        # Enable native drag & drop if tkinterdnd2 is available
+        if self._dnd_available:
+            try:
+                from tkinterdnd2 import DND_FILES
+                self._drop_frame.drop_target_register(DND_FILES)
+                self._drop_frame.dnd_bind('<<Drop>>', self._on_drop)
+            except Exception:
+                pass  # DnD not available, click still works
 
         # File badge (hidden)
         self._file_frame = ctk.CTkFrame(f, height=70, corner_radius=10)
@@ -373,6 +389,21 @@ class ReBookApp:
         )
         if path:
             self._set_file(path)
+
+    def _on_drop(self, event):
+        """Handle drag & drop from Windows Explorer."""
+        raw = event.data
+        # Windows tkdnd wraps paths with spaces in {curly braces}
+        if raw.startswith('{'):
+            path = raw.strip('{}')
+        else:
+            path = raw.strip()
+        # Take only first file if multiple dropped
+        if '\n' in path:
+            path = path.split('\n')[0].strip()
+        p = Path(path)
+        if p.exists() and p.suffix.lower() in ('.pdf', '.epub', '.md'):
+            self._set_file(str(p))
 
     def _set_file(self, path):
         p = Path(path)
