@@ -19,10 +19,31 @@ import image_translator
 
 if sys.platform == "win32":
     WORKSPACE_DIR = Path.home() / ".rebook"
-    MARKER_BIN = Path(sys.prefix) / "Scripts" / "marker_single.exe"
 else:
     WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
-    MARKER_BIN = Path(sys.prefix) / "bin" / "marker_single"
+
+
+def _find_marker():
+    """Find marker_single binary on current platform."""
+    import shutil
+    if sys.platform == "win32":
+        candidates = [
+            WORKSPACE_DIR / "env" / "Scripts" / "marker_single.exe",
+            Path(sys.prefix) / "Scripts" / "marker_single.exe",
+        ]
+    else:
+        candidates = [
+            WORKSPACE_DIR / "env" / "bin" / "marker_single",
+            Path(sys.prefix) / "bin" / "marker_single",
+        ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return shutil.which("marker_single")
+
+
+def is_marker_installed() -> bool:
+    return _find_marker() is not None
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -202,9 +223,6 @@ def convert_file(
     return str(out)
 
 
-def is_marker_installed() -> bool:
-    return MARKER_BIN.exists()
-
 
 # ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -257,7 +275,7 @@ def _run_marker(pdf: Path, job_dir: Path, cb) -> str:
     env.pop("TORCH_DEVICE", None)
 
     proc = subprocess.Popen(
-        [str(MARKER_BIN), str(pdf), "--output_dir", str(marker_out),
+        [_find_marker(), str(pdf), "--output_dir", str(marker_out),
          "--output_format", "markdown"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
     )

@@ -20,6 +20,21 @@ else:
 
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
+
+def _find_marker_bin():
+    """Find marker_single binary on Windows — checks venv, PATH, and user Scripts."""
+    import shutil
+    candidates = [
+        WORKSPACE / "env" / "Scripts" / "marker_single.exe",
+        Path(sys.prefix) / "Scripts" / "marker_single.exe",
+        Path.home() / "AppData" / "Local" / "Programs" / "Python" / "Scripts" / "marker_single.exe",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    found = shutil.which("marker_single")
+    return found
+
 # ── Determine if running under venv ──────────────────────────────────────────
 def _in_venv():
     return (VENV_DIR / "Scripts" / "python.exe").exists() and \
@@ -521,8 +536,8 @@ class ReBookApp:
                      font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
             anchor="w", padx=20, pady=(16, 4))
 
-        marker_bin = WORKSPACE / "env" / "Scripts" / "marker_single.exe"
-        marker_ok = marker_bin.exists()
+        # Check multiple possible marker locations on Windows
+        marker_ok = _find_marker_bin() is not None
         status_key = "settings_marker_installed" if marker_ok else "settings_marker_not_installed"
         marker_status = ctk.CTkLabel(win, text=t(status_key), font=ctk.CTkFont(size=11),
             text_color=("#2d8f2d", "#5dce5d") if marker_ok else ("orange", "orange"))
@@ -557,7 +572,21 @@ class ReBookApp:
     def _install_marker_win(self, win, btn, status_label):
         btn.configure(state="disabled", text=t("settings_marker_installing"))
         def _do():
-            pip = str(WORKSPACE / "env" / "Scripts" / "pip.exe")
+            # Find pip: try venv first, then system PATH
+            venv_pip = WORKSPACE / "env" / "Scripts" / "pip.exe"
+            if venv_pip.exists():
+                pip = str(venv_pip)
+            else:
+                import shutil as _sh
+                pip = _sh.which("pip") or _sh.which("pip3")
+            if not pip:
+                win.after(0, lambda: (
+                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
+                    status_label.configure(
+                        text="❌ pip not found — install Python first",
+                        text_color="red"),
+                ))
+                return
             try:
                 r = subprocess.run([pip, "install", "marker-pdf"],
                                    capture_output=True, text=True, timeout=600)
@@ -568,9 +597,10 @@ class ReBookApp:
                                                text_color=("#2d8f2d", "#5dce5d")),
                     ))
                 else:
+                    err = r.stderr[-200:] if r.stderr else "unknown error"
                     win.after(0, lambda: (
                         btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                        status_label.configure(text=t("settings_marker_error"), text_color="red"),
+                        status_label.configure(text=f"❌ {err}", text_color="red"),
                     ))
             except Exception as e:
                 win.after(0, lambda: (
