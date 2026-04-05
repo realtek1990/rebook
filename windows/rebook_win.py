@@ -247,15 +247,21 @@ class ReBookApp:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        # Always use CTk for proper dark mode theming
-        # TkinterDnD.Tk() bypasses CTk's theme engine
-        self.root = ctk.CTk()
+        # Hybrid CTk + DnD root: dark mode theming + native drag & drop
         self._dnd_available = False
         try:
-            from tkinterdnd2 import DND_FILES
+            from tkinterdnd2 import TkinterDnD
+
+            class _CTkDnD(ctk.CTk, TkinterDnD.DnDWrapper):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.TkdndVersion = TkinterDnD._require(self)
+
+            self.root = _CTkDnD()
             self._dnd_available = True
-        except ImportError:
-            pass
+        except Exception:
+            self.root = ctk.CTk()
+            self._dnd_available = False
         self.root.title("ReBook")
         self.root.geometry("680x760")
         self.root.minsize(600, 700)
@@ -303,10 +309,12 @@ class ReBookApp:
         if self._dnd_available:
             try:
                 from tkinterdnd2 import DND_FILES
-                self._drop_frame.drop_target_register(DND_FILES)
-                self._drop_frame.dnd_bind('<<Drop>>', self._on_drop)
-            except Exception:
-                pass  # DnD not available, click still works
+                # CTk widgets don't inherit DnDWrapper — register on root instead
+                self.root.drop_target_register(DND_FILES)
+                self.root.dnd_bind('<<Drop>>', self._on_drop)
+            except Exception as e:
+                print(f"DnD registration failed: {e}")
+                self._dnd_available = False
 
         # File badge (hidden)
         self._file_frame = ctk.CTkFrame(f, height=70, corner_radius=10)

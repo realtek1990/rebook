@@ -1,5 +1,6 @@
 # ReBook Windows — zależności (bez macOS-only packages)
 customtkinter>=5.2.0
+tkinterdnd2>=0.3
 litellm>=1.0.0
 ebooklib>=0.18
 markdown>=3.5

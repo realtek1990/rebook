@@ -2,9 +2,16 @@
 """PyInstaller spec for ReBook Windows."""
 
 import os
+from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 APP_DIR = os.path.dirname(os.path.abspath(SPEC))
+
+# Collect tkinterdnd2 (including tkdnd Tcl libraries)
+try:
+    dnd_datas, dnd_binaries, dnd_hiddenimports = collect_all('tkinterdnd2')
+except Exception:
+    dnd_datas, dnd_binaries, dnd_hiddenimports = [], [], []
 
 a = Analysis(
     [os.path.join(APP_DIR, 'rebook_win.py')],
@@ -22,11 +29,12 @@ a = Analysis(
     hiddenimports=[
         'customtkinter',
         'tkinter',
+        'tkinterdnd2',
         'json',
         'queue',
         'smtplib',
         'email',
-    ],
+    ] + dnd_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
