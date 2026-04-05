@@ -615,7 +615,7 @@ ZWRÓĆ TYLKO POPRAWIONY TEKST TŁUMACZENIA."""
 
 Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). Pamiętaj o punktach 1-4 z instrukcji."""
 
-        MAX_VERIFY_RETRIES = 10
+        MAX_VERIFY_RETRIES = 3
         for attempt in range(MAX_VERIFY_RETRIES):
             try:
                 kwargs = {
@@ -627,35 +627,44 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
                     ],
                     "temperature": 0.1,
                     "max_tokens": 65536,
-                    "timeout": 300,
+                    "timeout": 120,
                 }
                 if api_base:
                     kwargs["api_base"] = api_base
 
                 response = litellm.completion(**kwargs)
                 result = response.choices[0].message.content
-                if result and len(result.strip()) > 50:
+                if result and result.strip():
+                    # If AI returned substantial text → use as verified version
+                    # If AI returned short response (e.g. 'translation is correct')
+                    # → original translation was fine, keep it
+                    verified = result.strip()
+                    if len(verified) < len(trans_chunk) * 0.3:
+                        # Response too short vs input = AI said "it's fine", keep original
+                        verified = trans_chunk
                     with lock:
                         done_count[0] += 1
                         if progress_callback:
                             progress_callback(done_count[0], total_chunks,
                                 f"✅ Segment {idx+1}/{total_chunks} zweryfikowany "
                                 f"({done_count[0]}/{total_chunks})")
-                    return result.strip()
+                    return verified
                 else:
-                    time.sleep(3 * (attempt + 1))
+                    time.sleep(2)
             except Exception as e:
                 if progress_callback:
                     with lock:
                         progress_callback(done_count[0], total_chunks,
-                            f"❌ Segment {idx+1} próba {attempt+1}/{MAX_VERIFY_RETRIES}: {e}")
-                time.sleep(5 * (attempt + 1))
+                            f"⚠️ Segment {idx+1} próba {attempt+1}/{MAX_VERIFY_RETRIES}: {e}")
+                time.sleep(3)
 
-        raise RuntimeError(
-            f"❌ BŁĄD KRYTYCZNY: Weryfikacja segmentu {idx+1}/{total_chunks} "
-            f"nie powiodła się mimo {MAX_VERIFY_RETRIES} prób!\n\n"
-            f"Spróbuj ponownie lub zmień model AI w Ustawieniach."
-        )
+        # Exhausted retries — use original translation instead of crashing
+        with lock:
+            done_count[0] += 1
+            if progress_callback:
+                progress_callback(done_count[0], total_chunks,
+                    f"⚠️ Segment {idx+1}: weryfikacja nie powiodła się, zachowano oryginalne tłumaczenie")
+        return trans_chunk
 
     if progress_callback:
         progress_callback(0, total_chunks,

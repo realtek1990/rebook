@@ -106,9 +106,8 @@ def convert_file(
     if use_llm:
         md_text = corrector._deduplicate_markdown(md_text)
 
-    # ── Stage 2.5: Verification Pass (optional — can take very long) ────────
-    config = corrector.get_config()
-    if use_llm and use_translate and config.get("verify_translation", False):
+    # ── Stage 2.5: Verification Pass ─────────────────────────────────────
+    if use_llm and use_translate:
         report("verification", 0, "🔍 Weryfikacja tłumaczenia…")
 
         def on_verify(cur, tot, msg):
@@ -123,8 +122,6 @@ def convert_file(
             progress_callback=on_verify,
         )
         report("verification", 100, "✅ Weryfikacja zakończona")
-    elif use_llm and use_translate:
-        report("verification", 100, "⏩ Weryfikacja pominięta (włącz w ustawieniach)")
 
     # ── Stage 2.75: Image Translation (Nano Banana 2) ────────────────────
     translated_images = {}
