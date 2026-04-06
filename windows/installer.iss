@@ -4,7 +4,7 @@
 ; Requires: Inno Setup 6+ (https://jrsoftware.org/isinfo.php)
 
 #define MyAppName "ReBook"
-#define MyAppVersion "2.2.5"
+#define MyAppVersion "2.2.6"
 #define MyAppPublisher "ReBook"
 #define MyAppURL "https://github.com/realtek1990/rebook"
 #define MyAppExeName "ReBook.exe"
@@ -27,7 +27,7 @@ OutputBaseFilename=ReBook-Setup-{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 ; Visual
-SetupIconFile=.\icon.ico
+SetupIconFile=..\assets\icon.ico
 WizardStyle=modern
 WizardSizePercent=110
 ; Privileges

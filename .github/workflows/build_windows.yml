@@ -77,11 +77,22 @@ jobs:
             --hidden-import google.genai ^
             rebook_win.py
 
+      - name: Verify build artifacts
+        shell: bash
+        run: |
+          echo "=== windows/dist/ contents ==="
+          ls -la windows/dist/
+          echo "=== ReBook.exe ==="
+          ls -lh windows/dist/ReBook.exe
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
       - name: Build Inno Setup Installer
         shell: cmd
         working-directory: windows
         run: |
-          "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer.iss
+          iscc installer.iss
 
       - name: Stage output
         shell: bash
