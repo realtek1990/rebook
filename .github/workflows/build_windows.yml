@@ -86,13 +86,21 @@ jobs:
           ls -lh windows/dist/ReBook.exe
 
       - name: Install Inno Setup
-        run: choco install innosetup -y --no-progress
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
 
       - name: Build Inno Setup Installer
         shell: cmd
         working-directory: windows
         run: |
-          iscc installer.iss
+          echo === Checking Inno Setup installation ===
+          dir "C:\Program Files (x86)\Inno Setup 6\iscc.exe"
+          echo === Checking icon file ===
+          dir "..\assets\icon.ico"
+          echo === Running ISCC ===
+          "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer.iss
 
       - name: Stage output
         shell: bash
