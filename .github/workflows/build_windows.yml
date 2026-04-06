@@ -95,11 +95,8 @@ jobs:
         shell: cmd
         working-directory: windows
         run: |
-          echo === Checking Inno Setup installation ===
-          dir "C:\Program Files (x86)\Inno Setup 6\iscc.exe"
-          echo === Checking icon file ===
-          dir "..\assets\icon.ico"
-          echo === Running ISCC ===
+          dir dist\ReBook.exe
+          dir ..\assets\icon.ico
           "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer.iss
 
       - name: Stage output
