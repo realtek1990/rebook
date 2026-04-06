@@ -92,30 +92,10 @@ jobs:
           echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
 
       - name: Build Inno Setup Installer
-        id: iscc
-        shell: pwsh
+        shell: cmd
         working-directory: windows
-        continue-on-error: true
         run: |
-          dir dist\ReBook.exe
-          dir ..\assets\icon.ico
-          & "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer.iss 2>&1 | Tee-Object -FilePath iscc_output.txt
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output "ISCC failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-
-      - name: Upload ISCC log on failure
-        if: steps.iscc.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: iscc-error-log
-          path: windows/iscc_output.txt
-          retention-days: 7
-
-      - name: Fail build if ISCC failed
-        if: steps.iscc.outcome == 'failure'
-        run: exit 1
+          "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer.iss
 
       - name: Stage output
         shell: bash

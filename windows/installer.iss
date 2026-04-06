@@ -57,7 +57,6 @@ Name: "danish"; MessagesFile: "compiler:Languages\Danish.isl"
 Name: "norwegian"; MessagesFile: "compiler:Languages\Norwegian.isl"
 Name: "swedish"; MessagesFile: "compiler:Languages\Swedish.isl"
 Name: "hungarian"; MessagesFile: "compiler:Languages\Hungarian.isl"
-Name: "romanian"; MessagesFile: "compiler:Languages\Romanian.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
