@@ -598,13 +598,24 @@ class ReBookApp:
                 try:
                     import urllib.request, tempfile
                     installer = Path(tempfile.gettempdir()) / "python-installer.exe"
-                    urllib.request.urlretrieve("https://www.python.org/ftp/python/3.12.3/python-3.12.3-amd64.exe", installer)
+                    
+                    def _report_hook(count, block_size, total_size):
+                        if total_size > 0:
+                            percent = min(100, int(count * block_size * 100 / total_size))
+                            win.after(0, lambda p=percent: status_label.configure(
+                                text=f"⏳ Pobieranie instalatora Python... {p}%", text_color="orange"
+                            ))
+
+                    urllib.request.urlretrieve(
+                        "https://www.python.org/ftp/python/3.12.3/python-3.12.3-amd64.exe", 
+                        installer, 
+                        reporthook=_report_hook
+                    )
                     
                     win.after(0, lambda: status_label.configure(
-                        text="⏳ Instalacja Python w tle... Proszę czekać", text_color="orange"
+                        text="⏳ Instalacja Python... (widoczne okno instalatora)", text_color="orange"
                     ))
-                    # Install in user space, add to PATH, silent mode
-                    # InstallAllUsers=0 doesn't require UAC admin rights
+                    # Install in user space, add to PATH, show progress bar
                     subprocess.run(
                         [str(installer), "/passive", "InstallAllUsers=0", "PrependPath=1", "Include_test=0"],
                         check=True
@@ -632,23 +643,33 @@ class ReBookApp:
                 return
 
             win.after(0, lambda: status_label.configure(
-                text="⏳ Pobieranie Marker OCR (~1 GB)... Może potrwać kilka minut", text_color="orange"
+                text="⏳ Pobieranie Marker OCR (~1 GB)...", text_color="orange"
             ))
 
             try:
-                r = subprocess.run([pip, "install", "marker-pdf"],
-                                   capture_output=True, text=True, timeout=900)
-                if r.returncode == 0:
+                # Use Popen to stream pip output to the UI
+                p = subprocess.Popen([pip, "install", "marker-pdf"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                     text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                for line in p.stdout:
+                    txt = line.strip()
+                    if txt and len(txt) > 2:
+                        show_txt = txt[:60] + "..." if len(txt) > 60 else txt
+                        win.after(0, lambda m=show_txt: status_label.configure(
+                            text=f"⏳ {m}", text_color="orange"
+                        ))
+                
+                p.wait(timeout=900)
+                if p.returncode == 0:
                     win.after(0, lambda: (
                         btn.pack_forget(),
                         status_label.configure(text=t("settings_marker_done"),
                                                text_color=("#2d8f2d", "#5dce5d")),
                     ))
                 else:
-                    err = r.stderr[-200:] if r.stderr else "unknown error"
                     win.after(0, lambda: (
                         btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                        status_label.configure(text=f"❌ {err}", text_color="red"),
+                        status_label.configure(text="❌ Błąd instalacji Markera (sprawdź połączenie)", text_color="red"),
                     ))
             except Exception as e:
                 win.after(0, lambda: (
