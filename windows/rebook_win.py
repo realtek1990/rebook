@@ -27,8 +27,11 @@ def _find_marker_bin():
     candidates = [
         WORKSPACE / "env" / "Scripts" / "marker_single.exe",
         Path(sys.prefix) / "Scripts" / "marker_single.exe",
-        Path.home() / "AppData" / "Local" / "Programs" / "Python" / "Scripts" / "marker_single.exe",
     ]
+    python_dir = Path.home() / "AppData" / "Local" / "Programs" / "Python"
+    if python_dir.exists():
+        for sub in python_dir.glob("Python3*"):
+            candidates.append(sub / "Scripts" / "marker_single.exe")
     for c in candidates:
         if c.exists():
             return str(c)
@@ -588,16 +591,53 @@ class ReBookApp:
                 import shutil as _sh
                 pip = _sh.which("pip") or _sh.which("pip3")
             if not pip:
+                # Automagically install Python for the user before proceeding
+                win.after(0, lambda: status_label.configure(
+                    text="⏳ Brak Python. Pobieranie instalatora (~30MB)...", text_color="orange"
+                ))
+                try:
+                    import urllib.request, tempfile
+                    installer = Path(tempfile.gettempdir()) / "python-installer.exe"
+                    urllib.request.urlretrieve("https://www.python.org/ftp/python/3.12.3/python-3.12.3-amd64.exe", installer)
+                    
+                    win.after(0, lambda: status_label.configure(
+                        text="⏳ Instalacja Python w tle... Proszę czekać", text_color="orange"
+                    ))
+                    # Install in user space, add to PATH, silent mode
+                    # InstallAllUsers=0 doesn't require UAC admin rights
+                    subprocess.run(
+                        [str(installer), "/passive", "InstallAllUsers=0", "PrependPath=1", "Include_test=0"],
+                        check=True
+                    )
+                    
+                    # Locate the newly installed pip
+                    user_scripts = Path.home() / "AppData" / "Local" / "Programs" / "Python" / "Python312" / "Scripts"
+                    if (user_scripts / "pip.exe").exists():
+                        pip = str(user_scripts / "pip.exe")
+                    else:
+                        pip = _sh.which("pip") or _sh.which("pip3")
+                        
+                except Exception as ex:
+                    win.after(0, lambda: (
+                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
+                        status_label.configure(text=f"❌ Błąd inst. Python: {ex}", text_color="red"),
+                    ))
+                    return
+
+            if not pip:
                 win.after(0, lambda: (
                     btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                    status_label.configure(
-                        text="❌ pip not found — install Python first",
-                        text_color="red"),
+                    status_label.configure(text="❌ Instalacja Python nie powiodła się", text_color="red"),
                 ))
                 return
+
+            win.after(0, lambda: status_label.configure(
+                text="⏳ Pobieranie Marker OCR (~1 GB)... Może potrwać kilka minut", text_color="orange"
+            ))
+
             try:
                 r = subprocess.run([pip, "install", "marker-pdf"],
-                                   capture_output=True, text=True, timeout=600)
+                                   capture_output=True, text=True, timeout=900)
                 if r.returncode == 0:
                     win.after(0, lambda: (
                         btn.pack_forget(),

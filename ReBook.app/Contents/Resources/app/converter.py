@@ -31,6 +31,10 @@ def _find_marker():
             WORKSPACE_DIR / "env" / "Scripts" / "marker_single.exe",
             Path(sys.prefix) / "Scripts" / "marker_single.exe",
         ]
+        python_dir = Path.home() / "AppData" / "Local" / "Programs" / "Python"
+        if python_dir.exists():
+            for sub in python_dir.glob("Python3*"):
+                candidates.append(sub / "Scripts" / "marker_single.exe")
     else:
         candidates = [
             WORKSPACE_DIR / "env" / "bin" / "marker_single",
