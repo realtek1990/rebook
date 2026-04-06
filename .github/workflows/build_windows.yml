@@ -80,7 +80,7 @@ jobs:
         shell: cmd
         working-directory: windows
         run: |
-          iscc installer.iss
+          "C:\Program Files (x86)\Inno Setup 6\iscc.exe" installer.iss
 
       - name: Stage output
         shell: bash
