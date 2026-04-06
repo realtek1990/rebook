@@ -4,7 +4,7 @@
 ; Requires: Inno Setup 6+ (https://jrsoftware.org/isinfo.php)
 
 #define MyAppName "ReBook"
-#define MyAppVersion "2.2.4"
+#define MyAppVersion "2.2.5"
 #define MyAppPublisher "ReBook"
 #define MyAppURL "https://github.com/realtek1990/rebook"
 #define MyAppExeName "ReBook.exe"

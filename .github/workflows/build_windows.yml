@@ -55,6 +55,7 @@ jobs:
             --onefile ^
             --noconsole ^
             --name ReBook ^
+            --distpath . ^
             --icon "..\..\assets\icon.ico" ^
             --add-data "i18n.py;." ^
             --add-data "corrector.py;." ^
