@@ -26,6 +26,10 @@ echo "   ✅ rebook_win.py"
 cp "$SCRIPT_DIR/requirements_win.txt" "$WIN_DIST/requirements.txt"
 echo "   ✅ requirements.txt (windows)"
 
+echo "🔄 Downloading Python installer (for bundle)..."
+curl -sL "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -o "$WIN_DIST/python-installer.exe"
+echo "   ✅ python-installer.exe"
+
 echo ""
 echo "✅ Sync complete: $(ls "$WIN_DIST" | wc -l | tr -d ' ') files in windows/dist/"
 echo "   → Commit & push, GitHub Actions will build ReBook-Setup.exe automatically."

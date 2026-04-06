@@ -26,3 +26,6 @@ compare_glm.py
 read_pdf.py
 pdf_content.txt
 *.pdf
+
+.venv/
+windows/dist/python-installer.exe

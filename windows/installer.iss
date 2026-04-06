@@ -74,6 +74,7 @@ Source: "dist\converter.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\corrector.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\image_translator.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\manual_convert.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\python-installer.exe"; DestDir: "{app}\installers"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -84,22 +85,25 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; Launch app after install
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
+; Run Python installation silently if needed
+Filename: "{app}\installers\python-installer.exe"; Parameters: "/passive InstallAllUsers=1 PrependPath=1 Include_test=0"; Check: NeedsPython; StatusMsg: "Installing Python... (Please wait)"
+
 [Code]
-// Check Python installed, warn if missing
-function InitializeSetup(): Boolean;
+// Check Python installed, return True if we need to install it
+function NeedsPython(): Boolean;
 var
   PythonPath: String;
 begin
-  Result := True;
-  if not RegQueryStringValue(HKEY_LOCAL_MACHINE,
-    'SOFTWARE\Python\PythonCore\3.12\InstallPath',
-    '', PythonPath) and
-     not RegQueryStringValue(HKEY_CURRENT_USER,
-    'SOFTWARE\Python\PythonCore\3.12\InstallPath',
-    '', PythonPath) then
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Python\PythonCore\3.12\InstallPath', '', PythonPath) or
+     RegQueryStringValue(HKEY_CURRENT_USER, 'SOFTWARE\Python\PythonCore\3.12\InstallPath', '', PythonPath) or
+     RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Python\PythonCore\3.11\InstallPath', '', PythonPath) or
+     RegQueryStringValue(HKEY_CURRENT_USER, 'SOFTWARE\Python\PythonCore\3.11\InstallPath', '', PythonPath) or
+     RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Python\PythonCore\3.10\InstallPath', '', PythonPath) or
+     RegQueryStringValue(HKEY_CURRENT_USER, 'SOFTWARE\Python\PythonCore\3.10\InstallPath', '', PythonPath) then
   begin
-    MsgBox('ReBook requires Python 3.10 or newer.' + #13#10 +
-           'Please install Python from https://python.org and try again.' + #13#10#13#10 +
-           'The app will still work if Python is installed system-wide.', mbInformation, MB_OK);
+    Result := False; // Python 3.10+ exists
+  end
+  else begin
+    Result := True; // Python missing, needs installation
   end;
 end;
