@@ -36,6 +36,7 @@ jobs:
           cp ReBook.app/Contents/Resources/app/manual_convert.py windows/dist/
           cp windows/rebook_win.py windows/dist/
           cp windows/requirements_win.txt windows/dist/requirements.txt
+          curl -sL "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -o "windows/dist/python-installer.exe"
 
       - name: Install Python dependencies
         shell: bash
@@ -75,18 +76,24 @@ jobs:
             --hidden-import google.genai ^
             rebook_win.py
 
+      - name: Build Inno Setup Installer
+        shell: cmd
+        working-directory: windows
+        run: |
+          iscc installer.iss
+
       - name: Stage output
         shell: bash
         run: |
           mkdir -p out
-          cp windows/dist/dist/ReBook.exe out/ReBook-Windows.exe
+          cp windows/output/ReBook-Setup-*.exe out/ReBook-Windows-Installer.exe
           ls -lh out/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ReBook-Windows-exe
-          path: out/ReBook-Windows.exe
+          name: ReBook-Windows-Installer
+          path: out/ReBook-Windows-Installer.exe
           if-no-files-found: error
           retention-days: 90
 
@@ -94,7 +101,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: ncipollo/release-action@v1
         with:
-          artifacts: out/ReBook-Windows.exe
+          artifacts: out/ReBook-Windows-Installer.exe
           allowUpdates: true
           generateReleaseNotes: false
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -155,7 +162,7 @@ jobs:
             Pobierz `ReBook.dmg`, zamontuj i przeciągnij **ReBook.app** do folderu Aplikacje.
 
             ### 🪟 Windows
-            Pobierz `ReBook-Windows.exe` i uruchom. Przy pierwszym starcie zainstaluje wymagane biblioteki.
+            Pobierz `ReBook-Windows-Installer.exe` i uruchom. Przy pierwszym starcie zainstaluje wymagane biblioteki.
 
             > Wymagane: klucz API (Gemini, OpenAI, Mistral lub inny) — skonfiguruj w Ustawieniach ⚙️
 
