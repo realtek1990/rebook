@@ -580,6 +580,58 @@ class ReBookApp:
         ctk.CTkButton(btn_row, text=t("settings_cancel"), fg_color="gray50",
                       command=win.destroy).pack(side="right", padx=4)
 
+    @staticmethod
+    def _is_vcredist_installed():
+        """Check if VC++ Redistributable 2015-2022 x64 is installed."""
+        import winreg
+        keys_to_check = [
+            r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64",
+            r"SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\X64",
+        ]
+        for key_path in keys_to_check:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+                val, _ = winreg.QueryValueEx(key, "Installed")
+                winreg.CloseKey(key)
+                if val == 1:
+                    return True
+            except (FileNotFoundError, OSError):
+                continue
+        return False
+
+    def _ensure_vcredist(self, win, status_label):
+        """Download and install VC++ Redistributable if missing. Returns True on success."""
+        if self._is_vcredist_installed():
+            return True
+        try:
+            import urllib.request, tempfile
+            installer = Path(tempfile.gettempdir()) / "vc_redist.x64.exe"
+            vc_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+            def _report(count, block_size, total_size):
+                if total_size > 0:
+                    pct = min(100, int(count * block_size * 100 / total_size))
+                    win.after(0, lambda p=pct: status_label.configure(
+                        text=f"⏳ Pobieranie VC++ Runtime... {p}%", text_color="orange"
+                    ))
+
+            win.after(0, lambda: status_label.configure(
+                text="⏳ Pobieranie VC++ Runtime (~25 MB)...", text_color="orange"
+            ))
+            urllib.request.urlretrieve(vc_url, installer, reporthook=_report)
+
+            win.after(0, lambda: status_label.configure(
+                text="⏳ Instalacja VC++ Runtime...", text_color="orange"
+            ))
+            subprocess.run(
+                [str(installer), "/install", "/passive", "/norestart"],
+                check=True
+            )
+            return True
+        except Exception as ex:
+            print(f"VC++ install failed: {ex}")
+            return False
+
     def _install_marker_win(self, win, btn, status_label):
         btn.configure(state="disabled", text=t("settings_marker_installing"))
         def _do():
@@ -639,6 +691,18 @@ class ReBookApp:
                 win.after(0, lambda: (
                     btn.configure(state="normal", text=t("settings_marker_install_btn")),
                     status_label.configure(text="❌ Instalacja Python nie powiodła się", text_color="red"),
+                ))
+                return
+
+            # ── Ensure VC++ Redistributable is installed (required by PyTorch) ──
+            win.after(0, lambda: status_label.configure(
+                text="⏳ Sprawdzanie zależności systemowych...", text_color="orange"
+            ))
+            if not self._ensure_vcredist(win, status_label):
+                win.after(0, lambda: (
+                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
+                    status_label.configure(
+                        text="❌ Nie udało się zainstalować VC++ Redistributable", text_color="red"),
                 ))
                 return
 
