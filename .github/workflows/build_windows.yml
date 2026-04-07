@@ -1,4 +1,4 @@
-name: Build ReBook Windows Installer
+name: Build ReBook (Windows, macOS, Linux)
 
 on:
   push:
@@ -172,21 +172,112 @@ jobs:
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            ## ReBook v2.4.0
+            ## ReBook v2.5.0
 
             ### 🍎 macOS
             Pobierz `ReBook.dmg`, zamontuj i przeciągnij **ReBook.app** do folderu Aplikacje.
 
             ### 🪟 Windows
-            Pobierz `ReBook-Windows-Installer.exe` i uruchom. Przy pierwszym starcie zainstaluje wymagane biblioteki.
+            Pobierz `ReBook-Windows-Installer.exe` i uruchom.
+
+            ### 🐧 Linux
+            Pobierz `ReBook-Linux`, nadaj uprawnienia (`chmod +x`) i uruchom.
 
             > Wymagane: klucz API (Gemini, OpenAI, Mistral lub inny) — skonfiguruj w Ustawieniach ⚙️
 
-            ### Co nowego w v2.4.0
-            - 🎨 Wybór języka z listy (ComboBox z 27 językami, autocomplete)
+            ### Co nowego w v2.5.0
+            - 🐧 Wersja Linux (Ubuntu/Debian/Fedora)
+            - 🎨 Wybór języka z listy (ComboBox z 27 językami)
             - ⛔ Przycisk Stop — zatrzymanie trwającej konwersji
             - 🔧 Fix tłumaczeń: dynamiczny prompt, brak biasu EN→PL
             - 📝 Tytuł EPUB i nazwa pliku zawierają język docelowy
             - 🖼️ Nowe profesjonalne logo aplikacji
-            - 🪟 Pełna parytetu funkcji Windows = macOS
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Linux: Build ReBook binary
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk python3-dev
+
+      - name: Sync backend files
+        run: |
+          mkdir -p linux/dist
+          cp ReBook.app/Contents/Resources/app/corrector.py linux/dist/
+          cp ReBook.app/Contents/Resources/app/converter.py linux/dist/
+          cp ReBook.app/Contents/Resources/app/image_translator.py linux/dist/
+          cp ReBook.app/Contents/Resources/app/i18n.py linux/dist/
+          cp linux/rebook_linux.py linux/dist/
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller customtkinter
+          pip install tkinterdnd2 || true
+          pip install ebooklib markdown beautifulsoup4 markdownify Pillow PyMuPDF
+          pip install litellm || true
+          pip install google-genai || true
+
+      - name: Build ReBook binary
+        working-directory: linux/dist
+        run: |
+          pyinstaller \
+            --onefile \
+            --noconsole \
+            --name ReBook-Linux \
+            --distpath . \
+            --add-data "i18n.py:." \
+            --add-data "corrector.py:." \
+            --add-data "converter.py:." \
+            --add-data "image_translator.py:." \
+            --collect-all customtkinter \
+            --collect-data litellm \
+            --hidden-import customtkinter \
+            --hidden-import litellm \
+            --hidden-import ebooklib \
+            --hidden-import markdown \
+            --hidden-import bs4 \
+            --hidden-import markdownify \
+            --hidden-import PIL \
+            --hidden-import fitz \
+            --hidden-import image_translator \
+            --hidden-import google.genai \
+            rebook_linux.py
+
+      - name: Verify build
+        run: |
+          ls -lh linux/dist/ReBook-Linux
+          file linux/dist/ReBook-Linux
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReBook-Linux
+          path: linux/dist/ReBook-Linux
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish Linux binary to GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: linux/dist/ReBook-Linux
+          allowUpdates: true
+          generateReleaseNotes: false
+          token: ${{ secrets.GITHUB_TOKEN }}
