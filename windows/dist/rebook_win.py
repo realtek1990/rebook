@@ -24,6 +24,30 @@ def _in_venv():
 def _venv_python():
     return str(VENV_DIR / "Scripts" / "python.exe")
 
+def _get_system_ram_gb():
+    """Return total physical RAM in GB."""
+    try:
+        import ctypes
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("sullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        stat = MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(stat)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        return stat.ullTotalPhys / (1024 ** 3)
+    except Exception:
+        return 99.0  # assume enough RAM if detection fails
+
+# Minimum RAM (GB) for safe Marker OCR operation
+MIN_RAM_FOR_OCR_GB = 6.0
+
 # ── Config ───────────────────────────────────────────────────────────────────
 def load_config():
     try: return json.load(open(CONFIG_FILE))
@@ -498,6 +522,21 @@ class ReBookApp:
     def _start_conversion(self):
         if not self._selected_file or self._converting:
             return
+
+        # ── Hardware safety check for PDF files (require Marker OCR) ──
+        is_pdf = Path(self._selected_file).suffix.lower() == ".pdf"
+        if is_pdf:
+            ram_gb = _get_system_ram_gb()
+            if ram_gb < MIN_RAM_FOR_OCR_GB:
+                from tkinter import messagebox
+                proceed = messagebox.askyesno(
+                    t("hw_warn_title"),
+                    t("hw_warn_low_ram", ram_gb=ram_gb),
+                    icon="warning",
+                )
+                if not proceed:
+                    return
+
         self._converting = True
         self._convert_btn.configure(state="disabled", text=t("converting_btn"))
         self._result_frame.pack_forget()

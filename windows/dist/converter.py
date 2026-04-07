@@ -246,11 +246,54 @@ def _extract_epub(epub_path: Path, images_dir: Path) -> tuple[str, dict]:
 def _run_marker(pdf: Path, job_dir: Path, cb) -> str:
     marker_out = job_dir / "marker_output"
     env = os.environ.copy()
+
+    # ── Hardware-aware throttling ──────────────────────────────────────
+    # Detect available RAM and throttle aggressively on low-spec machines
+    low_ram = False
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            class _MEMSTAT(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("sullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            stat = _MEMSTAT()
+            stat.dwLength = ctypes.sizeof(stat)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            ram_gb = stat.ullTotalPhys / (1024 ** 3)
+            low_ram = ram_gb < 6.0
+        else:
+            import psutil
+            low_ram = psutil.virtual_memory().total / (1024 ** 3) < 6.0
+    except Exception:
+        pass
+
+    if low_ram:
+        # Minimal batch sizes to reduce RAM and CPU pressure
+        batch_size = "1"
+        # Limit PyTorch to 1 thread to prevent CPU overheating
+        env["OMP_NUM_THREADS"] = "1"
+        env["MKL_NUM_THREADS"] = "1"
+        env["TORCH_NUM_THREADS"] = "1"
+        if cb:
+            cb("ocr", 0, "⚡ Tryb oszczędny — ograniczono CPU/RAM")
+    else:
+        batch_size = "2"
+
     for k in ("RECOGNITION_BATCH_SIZE", "DETECTOR_BATCH_SIZE",
               "LAYOUT_BATCH_SIZE", "TABLE_REC_BATCH_SIZE", "OCR_ERROR_BATCH_SIZE"):
-        env[k] = "2"
+        env[k] = batch_size
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     env.pop("TORCH_DEVICE", None)
+
+    # Force CPU-only mode on machines without CUDA GPUs to avoid driver issues
+    env["TORCH_DEVICE"] = "cpu"
 
     proc = subprocess.Popen(
         [str(MARKER_BIN), str(pdf), "--output_dir", str(marker_out),

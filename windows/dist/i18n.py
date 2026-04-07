@@ -764,6 +764,110 @@ STRINGS = {
         "pl": "Uzupełnij dane Kindle w Ustawieniach (⚙️)",
         "en": "Fill in Kindle settings (⚙️)",
     },
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  HARDWARE SAFETY WARNINGS
+    # ═══════════════════════════════════════════════════════════════════
+    "hw_warn_title": {
+        "pl": "⚠️ Ostrzeżenie sprzętowe",
+        "en": "⚠️ Hardware Warning",
+        "de": "⚠️ Hardware-Warnung",
+        "es": "⚠️ Advertencia de hardware",
+        "fr": "⚠️ Avertissement matériel",
+        "ru": "⚠️ Предупреждение о железе",
+        "uk": "⚠️ Попередження щодо обладнання",
+        "zh": "⚠️ 硬件警告",
+        "ja": "⚠️ ハードウェア警告",
+    },
+    "hw_warn_low_ram": {
+        "pl": "⚠️ Twój komputer ma tylko {ram_gb:.1f} GB RAM.\n\n"
+              "Konwersja PDF wymaga Marker OCR + PyTorch,\n"
+              "które zużywają ~4 GB RAM.\n\n"
+              "Przy tak małej ilości pamięci komputer może:\n"
+              "  • Stać się bardzo wolny\n"
+              "  • Wyłączyć się z przegrzania (!)\n\n"
+              "Zalecenia:\n"
+              "  • Zamknij inne programy przed konwersją\n"
+              "  • Konwertuj EPUB zamiast PDF (nie wymaga OCR)\n"
+              "  • Minimum 8 GB RAM (zalecane 16 GB)\n\n"
+              "Czy kontynuować mimo to?",
+        "en": "⚠️ Your computer has only {ram_gb:.1f} GB RAM.\n\n"
+              "PDF conversion requires Marker OCR + PyTorch,\n"
+              "which consume ~4 GB RAM.\n\n"
+              "With this little memory your computer may:\n"
+              "  • Become very slow\n"
+              "  • Shut down from overheating (!)\n\n"
+              "Recommendations:\n"
+              "  • Close other programs before converting\n"
+              "  • Convert EPUB instead of PDF (no OCR needed)\n"
+              "  • Minimum 8 GB RAM (16 GB recommended)\n\n"
+              "Continue anyway?",
+        "de": "⚠️ Ihr Computer hat nur {ram_gb:.1f} GB RAM.\n\n"
+              "PDF-Konvertierung erfordert Marker OCR + PyTorch,\n"
+              "die ~4 GB RAM verbrauchen.\n\n"
+              "Bei so wenig Speicher kann der Computer:\n"
+              "  • Sehr langsam werden\n"
+              "  • Sich wegen Überhitzung abschalten (!)\n\n"
+              "Trotzdem fortfahren?",
+        "ru": "⚠️ На вашем компьютере всего {ram_gb:.1f} ГБ ОЗУ.\n\n"
+              "Конвертация PDF требует Marker OCR + PyTorch,\n"
+              "которые используют ~4 ГБ RAM.\n\n"
+              "При таком объёме памяти компьютер может:\n"
+              "  • Стать очень медленным\n"
+              "  • Выключиться от перегрева (!)\n\n"
+              "Продолжить?",
+        "uk": "⚠️ Ваш комп'ютер має лише {ram_gb:.1f} ГБ ОЗП.\n\n"
+              "Конвертація PDF вимагає Marker OCR + PyTorch,\n"
+              "які використовують ~4 ГБ RAM.\n\n"
+              "Із такою кількістю пам'яті комп'ютер може:\n"
+              "  • Стати дуже повільним\n"
+              "  • Вимкнутися через перегрів (!)\n\n"
+              "Продовжити?",
+        "zh": "⚠️ 您的计算机只有 {ram_gb:.1f} GB RAM。\n\n"
+              "PDF转换需要 Marker OCR + PyTorch，\n"
+              "大约消耗 ~4 GB RAM。\n\n"
+              "内存不足可能导致：\n"
+              "  • 电脑非常卡顿\n"
+              "  • 因过热自动关机 (!)\n\n"
+              "仍然继续？",
+        "ja": "⚠️ お使いのコンピュータのRAMは {ram_gb:.1f} GBしかありません。\n\n"
+              "PDF変換にはMarker OCR + PyTorchが必要で、\n"
+              "約4 GBのRAMを消費します。\n\n"
+              "メモリが少ないため：\n"
+              "  • 非常に遅くなる可能性があります\n"
+              "  • 過熱によりシャットダウンする可能性があります (!)\n\n"
+              "続行しますか？",
+    },
+    "hw_warn_throttled": {
+        "pl": "⚡ Tryb oszczędny: ograniczono obciążenie CPU aby zapobiec przegrzaniu",
+        "en": "⚡ Eco mode: CPU load limited to prevent overheating",
+        "de": "⚡ Sparmodus: CPU-Last begrenzt um Überhitzung zu verhindern",
+        "ru": "⚡ Экономный режим: нагрузка CPU ограничена для предотвращения перегрева",
+        "uk": "⚡ Економний режим: навантаження CPU обмежено для запобігання перегріву",
+        "zh": "⚡ 省电模式：限制CPU负载以防过热",
+        "ja": "⚡ エコモード：過熱防止のためCPU負荷を制限しました",
+    },
+    "settings_marker_header": {
+        "pl": "MARKER OCR", "en": "MARKER OCR",
+    },
+    "settings_marker_installed": {
+        "pl": "✅ Marker OCR zainstalowany", "en": "✅ Marker OCR installed",
+    },
+    "settings_marker_not_installed": {
+        "pl": "⚠️ Marker OCR nie zainstalowany", "en": "⚠️ Marker OCR not installed",
+    },
+    "settings_marker_install_btn": {
+        "pl": "Zainstaluj Marker OCR", "en": "Install Marker OCR",
+    },
+    "settings_marker_installing": {
+        "pl": "⏳ Instalowanie...", "en": "⏳ Installing...",
+    },
+    "settings_marker_done": {
+        "pl": "✅ Marker OCR zainstalowany!", "en": "✅ Marker OCR installed!",
+    },
+    "settings_marker_error": {
+        "pl": "❌ Błąd instalacji Marker OCR", "en": "❌ Marker OCR installation error",
+    },
 }
 
 
