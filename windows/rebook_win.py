@@ -365,6 +365,15 @@ class ReBookApp:
             text_color=("gray10", "gray90"),
         )
 
+        # Verify translation (hidden, opt-in, shown when translate enabled)
+        self._verify_var = ctk.BooleanVar(value=False)
+        self._verify_check = ctk.CTkCheckBox(
+            f, text="🔍 Weryfikacja tłumaczenia (dodatkowy przebieg AI — wolniejsze, droższe)",
+            variable=self._verify_var,
+            font=ctk.CTkFont(size=11),
+            text_color=("gray10", "gray90"),
+        )
+
         # Language fields (hidden)
         self._lang_frame = ctk.CTkFrame(f, fg_color="transparent")
         r1 = ctk.CTkFrame(self._lang_frame, fg_color="transparent")
@@ -459,8 +468,6 @@ class ReBookApp:
     def _remove_file(self):
         self._selected_file = None
         self._file_frame.pack_forget()
-        self._drop_frame.pack(fill="x", padx=24, pady=4, before=self._convert_btn.master.winfo_children()[0])
-        # Re-pack drop frame in the right place
         self._drop_frame.pack(fill="x", padx=24, pady=4)
         self._convert_btn.configure(state="disabled")
         self._result_frame.pack_forget()
@@ -469,10 +476,13 @@ class ReBookApp:
         if self._translate_var.get():
             self._lang_frame.pack(fill="x", padx=28, pady=4)
             self._translate_img_check.pack(anchor="w", padx=44, pady=2)
+            self._verify_check.pack(anchor="w", padx=44, pady=2)
         else:
             self._lang_frame.pack_forget()
             self._translate_img_check.pack_forget()
+            self._verify_check.pack_forget()
             self._translate_img_var.set(False)
+            self._verify_var.set(False)
 
     # ── Settings ──
 
@@ -712,9 +722,10 @@ class ReBookApp:
 
             try:
                 # Use Popen to stream pip output to the UI
+                popen_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
                 p = subprocess.Popen([pip, "install", "marker-pdf"],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                     text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                                     text=True, creationflags=popen_flags)
                 for line in p.stdout:
                     txt = line.strip()
                     if txt and len(txt) > 2:
@@ -763,19 +774,19 @@ class ReBookApp:
         fmt = FORMAT_KEYS[fmt_idx]
         translate = self._translate_var.get()
         translate_images = self._translate_img_var.get() if translate else False
+        verify = self._verify_var.get() if translate else False
         use_llm = self._ai_var.get() or translate
         lang_from = self._lang_from.get() if translate else ""
         lang_to = self._lang_to.get() if translate else "polski"
 
-        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, lang_from, lang_to)
+        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, verify, lang_from, lang_to)
         threading.Thread(target=self._run_conversion, args=args, daemon=True).start()
 
-    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to):
-        # Run under venv python
+    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to):
         try:
             import converter
             result = converter.convert_file(
-                path, fmt, use_llm, translate, translate_images, lang_from, lang_to,
+                path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to,
                 progress_callback=self._on_progress,
             )
             self._ui_queue.put(("done", result))
@@ -799,13 +810,23 @@ class ReBookApp:
 
     def _update_progress(self, info):
         stage, pct, msg = info["stage"], info["pct"], info["msg"]
-        total = pct / 100
-        if stage == "ocr": total = pct * 0.004
-        elif stage == "correction": total = 0.4 + pct * 0.003
-        elif stage == "verification": total = 0.7 + pct * 0.001
-        elif stage == "images": total = 0.8 + pct * 0.001
-        elif stage == "export": total = 0.9 + pct * 0.001
-        elif stage == "done": total = 1.0
+        # Map each stage to a sub-range of the overall 0.0→1.0 progress bar.
+        # Stages: ocr(0-35%), correction(35-55%), verification(55-85%), images(85-90%), export(90-100%)
+        stage_map = {
+            "ocr":          (0.00, 0.35),
+            "correction":   (0.35, 0.55),
+            "verification": (0.55, 0.85),
+            "images":       (0.85, 0.90),
+            "export":       (0.90, 1.00),
+            "done":         (1.00, 1.00),
+        }
+        if stage not in stage_map:
+            # Unknown stage — update label but don't move bar erratically
+            self._stage_label.configure(text=msg)
+            self._append_log(msg)
+            return
+        lo, hi = stage_map[stage]
+        total = lo + (pct / 100.0) * (hi - lo)
         self._progress_bar.set(min(total, 1.0))
         self._stage_label.configure(text=msg)
         self._append_log(msg)

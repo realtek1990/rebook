@@ -803,6 +803,8 @@ def _deep_translate_clusters(
 
     results = {}
     lock = threading.Lock()
+    done_clusters = [0]
+    total_clusters = len(real_clusters)
     
     def _translate_cluster(idx, chunk_text):
         prompt = f"""Przetłumacz CAŁY poniższy tekst.
@@ -839,6 +841,11 @@ Oto tekst:
         for f in as_completed(futures):
             s, e = futures[f]
             results[(s, e)] = f.result()
+            with lock:
+                done_clusters[0] += 1
+                if progress_callback:
+                    progress_callback(done_clusters[0], total_clusters,
+                        f"🔬 Retłumaczenie klastra {done_clusters[0]}/{total_clusters}...")
 
     for (start, end), translated in sorted(results.items(), reverse=True):
         lines[start:end] = translated.split('\n')

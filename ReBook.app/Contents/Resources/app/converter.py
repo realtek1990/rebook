@@ -58,6 +58,7 @@ def convert_file(
     use_llm: bool = False,
     use_translate: bool = False,
     translate_images: bool = False,
+    verify_translation: bool = False,
     lang_from: str = "",
     lang_to: str = "polski",
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
@@ -131,8 +132,8 @@ def convert_file(
     if use_llm:
         md_text = corrector._deduplicate_markdown(md_text)
 
-    # ── Stage 2.5: Verification Pass ─────────────────────────────────────
-    if use_llm and use_translate:
+    # ── Stage 2.5: Verification Pass (opt-in) ──────────────────────────────
+    if use_llm and use_translate and verify_translation:
         report("verification", 0, "🔍 Weryfikacja tłumaczenia…")
 
         def on_verify(cur, tot, msg):
@@ -270,6 +271,13 @@ def _extract_epub(epub_path: Path, images_dir: Path) -> tuple[str, dict]:
 
 
 def _run_marker(pdf: Path, job_dir: Path, cb) -> str:
+    marker_bin = _find_marker()
+    if not marker_bin:
+        raise RuntimeError(
+            "Marker OCR nie jest zainstalowany.\n"
+            "Zainstaluj go w Ustawieniach (⚙️) → Install Marker OCR."
+        )
+
     marker_out = job_dir / "marker_output"
     env = os.environ.copy()
     for k in ("RECOGNITION_BATCH_SIZE", "DETECTOR_BATCH_SIZE",
@@ -278,28 +286,66 @@ def _run_marker(pdf: Path, job_dir: Path, cb) -> str:
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     env.pop("TORCH_DEVICE", None)
 
+    popen_kwargs = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "env": env,
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
     proc = subprocess.Popen(
-        [_find_marker(), str(pdf), "--output_dir", str(marker_out),
+        [marker_bin, str(pdf), "--output_dir", str(marker_out),
          "--output_format", "markdown"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+        **popen_kwargs,
     )
+
+    # Marker OCR has multiple internal phases, each reporting its own 0-100%.
+    # Map each phase to a sub-range so the user sees a single monotonic 0→100%.
+    phase_ranges = {
+        "detect":      (0, 20),
+        "layout":      (20, 40),
+        "recognition": (40, 60),
+        "ocr":         (40, 60),   # alias
+        "table":       (60, 75),
+        "order":       (75, 85),
+        "error":       (85, 95),
+        "cleanup":     (85, 95),   # alias
+    }
+    current_phase = "detect"
+    last_reported = -1
     buf = ""
+
     while True:
-        chunk = proc.stdout.read(64)
+        chunk = proc.stdout.read(128)
         if not chunk:
             break
         buf += chunk.decode("utf-8", errors="replace")
+
+        # Detect phase changes from Marker's stdout
+        buf_lower = buf.lower()
+        for phase_key in phase_ranges:
+            if phase_key in buf_lower:
+                current_phase = phase_key
+
+        # Parse latest percentage
         m = list(re.finditer(r"(\d{1,3})%", buf))
         if m and cb:
-            pct = int(m[-1].group(1))
-            if pct <= 100:
-                cb("ocr", pct, f"OCR — {pct}%")
-        if len(buf) > 1024:
-            buf = buf[-200:]
+            raw_pct = int(m[-1].group(1))
+            lo, hi = phase_ranges.get(current_phase, (0, 100))
+            mapped_pct = lo + int(raw_pct * (hi - lo) / 100)
+            mapped_pct = min(mapped_pct, 99)
+            if mapped_pct > last_reported:
+                last_reported = mapped_pct
+                phase_label = current_phase.capitalize()
+                cb("ocr", mapped_pct, f"OCR ({phase_label}) — {mapped_pct}%")
+
+        if len(buf) > 2048:
+            buf = buf[-400:]
 
     proc.wait()
     if proc.returncode != 0:
-        raise RuntimeError("Marker OCR failed")
+        raise RuntimeError("Marker OCR failed — sprawdź czy masz wystarczająco RAM")
 
     md_files = list(marker_out.rglob("*.md"))
     if not md_files:
