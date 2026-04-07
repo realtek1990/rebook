@@ -74,6 +74,7 @@ jobs:
             --hidden-import markdownify ^
             --hidden-import PIL ^
             --hidden-import fitz ^
+            --hidden-import image_translator ^
             --hidden-import google.genai ^
             rebook_win.py
 
@@ -171,7 +172,7 @@ jobs:
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            ## ReBook v2.2.1
+            ## ReBook v2.4.0
 
             ### 🍎 macOS
             Pobierz `ReBook.dmg`, zamontuj i przeciągnij **ReBook.app** do folderu Aplikacje.
@@ -181,9 +182,11 @@ jobs:
 
             > Wymagane: klucz API (Gemini, OpenAI, Mistral lub inny) — skonfiguruj w Ustawieniach ⚙️
 
-            ### Co nowego w v2.2.1
-            - Auto sub-chunking nieudanych segmentów tłumaczenia
-            - Quality Gate: automatyczne re-tłumaczenie bloków z >30% języka źródłowego
-            - Deep English Cluster Scanner (po weryfikacji)
-            - Automatyczna deduplikacja duplikatów rozdziałów
-            - 4 krytyczne bugfixy silnika
+            ### Co nowego w v2.4.0
+            - 🎨 Wybór języka z listy (ComboBox z 27 językami, autocomplete)
+            - ⛔ Przycisk Stop — zatrzymanie trwającej konwersji
+            - 🔧 Fix tłumaczeń: dynamiczny prompt, brak biasu EN→PL
+            - 📝 Tytuł EPUB i nazwa pliku zawierają język docelowy
+            - 🖼️ Nowe profesjonalne logo aplikacji
+            - 🪟 Pełna parytetu funkcji Windows = macOS
+
