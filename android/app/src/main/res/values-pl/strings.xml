@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ReBook</string>
+    <string name="app_subtitle">Konwerter e-booków z AI</string>
+
+    <!-- File picker -->
+    <string name="drop_title">Wybierz plik</string>
+    <string name="drop_subtitle">PDF • EPUB • Markdown</string>
+    <string name="remove_btn">Usuń</string>
+
+    <!-- Options -->
+    <string name="options_header">Opcje konwersji</string>
+    <string name="format_label">Format</string>
+    <string name="ai_check">Korekta AI tekstu</string>
+    <string name="translate_check">🌍 Przetłumacz na inny język</string>
+    <string name="translate_images_check">Tłumacz obrazy</string>
+    <string name="verify_check">Weryfikuj jakość tłumaczenia</string>
+    <string name="lang_from_label">Język źródłowy</string>
+    <string name="lang_to_label">Język docelowy</string>
+
+    <!-- Buttons -->
+    <string name="convert_btn">🚀 Konwertuj</string>
+    <string name="converting_btn">Konwersja…</string>
+    <string name="share_btn">Udostępnij</string>
+    <string name="open_btn">Otwórz</string>
+
+    <!-- Results -->
+    <string name="conversion_done">Konwersja zakończona!</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Ustawienia</string>
+    <string name="settings_llm_header">Dostawca AI</string>
+    <string name="settings_provider">Dostawca</string>
+    <string name="settings_model">Model</string>
+    <string name="settings_api_key">Klucz API</string>
+    <string name="settings_kindle_header">Kindle</string>
+    <string name="settings_kindle_email">Email Kindle</string>
+    <string name="settings_ocr_header">PDF OCR</string>
+    <string name="settings_ocr_info">ReBook używa Google ML Kit do rozpoznawania tekstu na urządzeniu. Działa offline bez dodatkowego pobierania. Obsługuje 100+ języków.</string>
+    <string name="settings_save">Zapisz</string>
+    <string name="settings_cancel">Anuluj</string>
+</resources>
