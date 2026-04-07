@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.rebook.app-mergeDebugResources-2:/values-v30/values-v30.xml",
+            "map": [
+                {
+                    "source": "/Users/mac/.gradle/caches/8.11.1/transforms/93bfa7de016f4aa37286dbf180354bb6/transformed/material3-release/res/values-v30/values-v30.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "72",
+                        "endOffsets": "123"
+                    }
+                }
+            ]
+        }
+    ]
+}

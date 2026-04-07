@@ -62,6 +62,7 @@ dependencies {
 
     // ML Kit OCR
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.android.gms:play-services-tasks:18.2.0")
 
     // HTTP client
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

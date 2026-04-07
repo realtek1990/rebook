@@ -7,8 +7,8 @@ import android.os.ParcelFileDescriptor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -55,13 +55,13 @@ object OcrEngine {
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
             page.close()
 
-            // Run ML Kit OCR
+            // Run ML Kit OCR (blocking on IO dispatcher)
             val inputImage = InputImage.fromBitmap(bitmap, 0)
-            val result = recognizer.process(inputImage).await()
+            val visionText = Tasks.await(recognizer.process(inputImage))
 
             // Collect text blocks with proper ordering
-            val pageText = result.textBlocks.joinToString("\n\n") { block ->
-                block.lines.joinToString("\n") { it.text }
+            val pageText = visionText.textBlocks.joinToString("\n\n") { block ->
+                block.lines.joinToString("\n") { line -> line.text }
             }
 
             pages.add(pageText)
