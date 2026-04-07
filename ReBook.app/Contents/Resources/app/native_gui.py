@@ -49,6 +49,15 @@ MODELS = {
     "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"]
 }
 
+LANGUAGES = [
+    "polski", "angielski", "niemiecki", "francuski", "hiszpański",
+    "włoski", "portugalski", "rosyjski", "ukraiński", "czeski",
+    "słowacki", "chiński", "japoński", "koreański", "turecki",
+    "arabski", "holenderski", "szwedzki", "norweski", "duński",
+    "fiński", "wietnamski", "tajski", "węgierski", "rumuński",
+    "serbski", "chorwacki",
+]
+
 def load_config():
     try:
         return json.load(open(CONFIG_FILE))
@@ -344,20 +353,27 @@ class AppDelegate(NSObject):
         ll1 = _label(t("lang_from_label"), size=11, color=NSColor.secondaryLabelColor())
         ll1.setFrame_(NSMakeRect(0, 32, 110, 16))
         self._langView.addSubview_(ll1)
-        self._langFromField = _textfield(t("lang_from_placeholder"))
-        self._langFromField.setFrame_(NSMakeRect(112, 30, CW - 112, 22))
+        self._langFromField = NSComboBox.alloc().initWithFrame_(NSMakeRect(112, 30, CW - 112, 24))
+        self._langFromField.setFont_(NSFont.systemFontOfSize_(12))
+        self._langFromField.addItemsWithObjectValues_(LANGUAGES)
+        self._langFromField.setPlaceholderString_(t("lang_from_placeholder"))
+        self._langFromField.setCompletes_(True)
+        self._langFromField.setNumberOfVisibleItems_(10)
         self._langView.addSubview_(self._langFromField)
         ll2 = _label(t("lang_to_label"), size=11, color=NSColor.secondaryLabelColor())
         ll2.setFrame_(NSMakeRect(0, 4, 110, 16))
         self._langView.addSubview_(ll2)
-        self._langToField = _textfield("polski")
+        self._langToField = NSComboBox.alloc().initWithFrame_(NSMakeRect(112, 2, CW - 112, 24))
+        self._langToField.setFont_(NSFont.systemFontOfSize_(12))
+        self._langToField.addItemsWithObjectValues_(LANGUAGES)
         self._langToField.setStringValue_("polski")
-        self._langToField.setFrame_(NSMakeRect(112, 2, CW - 112, 22))
+        self._langToField.setCompletes_(True)
+        self._langToField.setNumberOfVisibleItems_(10)
         self._langView.addSubview_(self._langToField)
         cv.addSubview_(self._langView)
         top -= 68
 
-        self._convertBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 40, CW, 40))
+        self._convertBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 40, CW - 100, 40))
         self._convertBtn.setBezelStyle_(NSBezelStyleRounded)
         self._convertBtn.setTitle_(t("convert_btn"))
         self._convertBtn.setFont_(NSFont.systemFontOfSize_weight_(14, 0.3))
@@ -366,6 +382,15 @@ class AppDelegate(NSObject):
         self._convertBtn.setKeyEquivalent_("\r")
         self._convertBtn.setEnabled_(False)
         cv.addSubview_(self._convertBtn)
+
+        self._stopBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD + CW - 90, top - 40, 90, 40))
+        self._stopBtn.setBezelStyle_(NSBezelStyleRounded)
+        self._stopBtn.setTitle_("⛔ Stop")
+        self._stopBtn.setFont_(NSFont.systemFontOfSize_weight_(13, 0.3))
+        self._stopBtn.setTarget_(self)
+        self._stopBtn.setAction_("stopConversion:")
+        self._stopBtn.setHidden_(True)
+        cv.addSubview_(self._stopBtn)
         top -= 52
 
         self._progressBar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(PAD, top - 6, CW, 6))
@@ -693,8 +718,11 @@ class AppDelegate(NSObject):
         if not self._selectedFile or self._converting:
             return
         self._converting = True
+        self._cancelFlag = False
+        self._markerProc = None  # Will hold subprocess ref for kill
         self._convertBtn.setEnabled_(False)
         self._convertBtn.setTitle_(t("converting_btn"))
+        self._stopBtn.setHidden_(False)
         self._resultView.setHidden_(True)
         self._progressBar.setDoubleValue_(0)
         self._progressBar.setHidden_(False)
@@ -714,15 +742,43 @@ class AppDelegate(NSObject):
         args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to)
         threading.Thread(target=self._runConversion, args=args, daemon=True).start()
 
+    @objc.IBAction
+    def stopConversion_(self, sender):
+        """User clicked Stop — set cancel flag and kill any running subprocess."""
+        self._cancelFlag = True
+        self._stageLabel.setStringValue_("⛔ Zatrzymywanie…")
+        self._appendLog("⛔ Zatrzymywanie konwersji…")
+        # Kill Marker OCR subprocess if running
+        if self._markerProc and self._markerProc.poll() is None:
+            try:
+                self._markerProc.kill()
+            except Exception:
+                pass
+
     @objc.python_method
     def _runConversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to):
         import converter
         try:
+            # Pass cancel_flag checker as part of progress callback
+            def _progress_with_cancel(stage, pct, msg):
+                if self._cancelFlag:
+                    raise InterruptedError("⛔ Konwersja zatrzymana przez użytkownika")
+                self._onProgress(stage, pct, msg)
+
             result = converter.convert_file(
-                path, fmt, use_llm, translate, translate_images, lang_from, lang_to,
-                progress_callback=self._onProgress,
+                input_path=path,
+                output_format=fmt,
+                use_llm=use_llm,
+                use_translate=translate,
+                translate_images=translate_images,
+                verify_translation=False,
+                lang_from=lang_from,
+                lang_to=lang_to,
+                progress_callback=_progress_with_cancel,
             )
             self._scheduleUI("_conversionDone", result)
+        except InterruptedError:
+            self._scheduleUI("_conversionCancelled", None)
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -774,16 +830,28 @@ class AppDelegate(NSObject):
         self._converting = False
         self._convertBtn.setEnabled_(True)
         self._convertBtn.setTitle_(t("convert_btn"))
+        self._stopBtn.setHidden_(True)
         self._progressBar.setDoubleValue_(100)
         self._stageLabel.setStringValue_(t("done"))
         self._resultView.setHidden_(False)
         self._appendLog(t("all_done", name=Path(output_path).name))
 
     @objc.python_method
+    def _conversionCancelled(self, _):
+        self._converting = False
+        self._convertBtn.setEnabled_(True)
+        self._convertBtn.setTitle_(t("convert_btn"))
+        self._stopBtn.setHidden_(True)
+        self._progressBar.setHidden_(True)
+        self._stageLabel.setStringValue_("⛔ Konwersja zatrzymana")
+        self._appendLog("⛔ Konwersja zatrzymana przez użytkownika")
+
+    @objc.python_method
     def _conversionError(self, error_msg):
         self._converting = False
         self._convertBtn.setEnabled_(True)
         self._convertBtn.setTitle_(t("convert_btn"))
+        self._stopBtn.setHidden_(True)
         self._progressBar.setHidden_(True)
         self._stageLabel.setStringValue_(f"{t('error_prefix')}: {error_msg}")
         self._appendLog(f"{t('error_prefix')}: {error_msg}")

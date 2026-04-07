@@ -14,7 +14,11 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
+import sys as _sys
+if _sys.platform == "win32":
+    WORKSPACE_DIR = Path.home() / ".rebook"
+else:
+    WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
 CONFIG_FILE = WORKSPACE_DIR / "config.json"
 
 # Nano Banana 2 — best for high-fidelity text rendering + editing

@@ -115,6 +115,15 @@ MODELS = {
              "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"],
 }
 
+LANGUAGES = [
+    "polski", "angielski", "niemiecki", "francuski", "hiszpański",
+    "włoski", "portugalski", "rosyjski", "ukraiński", "czeski",
+    "słowacki", "chiński", "japoński", "koreański", "turecki",
+    "arabski", "holenderski", "szwedzki", "norweski", "duński",
+    "fiński", "wietnamski", "tajski", "węgierski", "rumuński",
+    "serbski", "chorwacki",
+]
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  FIRST-RUN INSTALLER WIZARD
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,7 +401,7 @@ class ReBookApp:
         # Verify translation (hidden, opt-in, shown when translate enabled)
         self._verify_var = ctk.BooleanVar(value=False)
         self._verify_check = ctk.CTkCheckBox(
-            f, text="🔍 Weryfikacja tłumaczenia (dodatkowy przebieg AI — wolniejsze, droższe)",
+            f, text=t("verify_check"),
             variable=self._verify_var,
             font=ctk.CTkFont(size=11),
             text_color=("gray10", "gray90"),
@@ -404,22 +413,31 @@ class ReBookApp:
         r1.pack(fill="x", pady=2)
         ctk.CTkLabel(r1, text=t("lang_from_label"), width=110,
                      font=ctk.CTkFont(size=11), text_color=("gray30", "gray70")).pack(side="left")
-        self._lang_from = ctk.CTkEntry(r1, placeholder_text=t("lang_from_placeholder"))
+        self._lang_from = ctk.CTkComboBox(r1, values=LANGUAGES)
+        self._lang_from.set("")
         self._lang_from.pack(side="left", fill="x", expand=True)
         r2 = ctk.CTkFrame(self._lang_frame, fg_color="transparent")
         r2.pack(fill="x", pady=2)
         ctk.CTkLabel(r2, text=t("lang_to_label"), width=110,
                      font=ctk.CTkFont(size=11), text_color=("gray30", "gray70")).pack(side="left")
-        self._lang_to = ctk.CTkEntry(r2)
-        self._lang_to.insert(0, "polski")
+        self._lang_to = ctk.CTkComboBox(r2, values=LANGUAGES)
+        self._lang_to.set("polski")
         self._lang_to.pack(side="left", fill="x", expand=True)
 
-        # Convert button
-        self._convert_btn = ctk.CTkButton(f, text=t("convert_btn"),
+        # Convert + Stop buttons
+        btn_frame = ctk.CTkFrame(f, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=24, pady=(16, 4))
+        self._convert_btn = ctk.CTkButton(btn_frame, text=t("convert_btn"),
                                            font=ctk.CTkFont(size=14, weight="bold"),
                                            height=42, command=self._start_conversion,
                                            state="disabled")
-        self._convert_btn.pack(fill="x", padx=24, pady=(16, 4))
+        self._convert_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self._stop_btn = ctk.CTkButton(btn_frame, text="⛔ Stop",
+                                        font=ctk.CTkFont(size=13, weight="bold"),
+                                        height=42, width=90, command=self._stop_conversion,
+                                        fg_color="#8B0000", hover_color="#A52A2A")
+        # Hidden initially
+        self._stop_btn.pack_forget()
 
         # Progress
         self._progress_bar = ctk.CTkProgressBar(f, width=600)
@@ -440,7 +458,7 @@ class ReBookApp:
         btn_row.pack(pady=(0, 12))
         ctk.CTkButton(btn_row, text=t("save_btn"), command=self._save_result,
                       height=36, font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=4)
-        ctk.CTkButton(btn_row, text="📁 Open folder", command=self._open_output_folder,
+        ctk.CTkButton(btn_row, text=t("open_folder_btn"), command=self._open_output_folder,
                       height=36, fg_color="#2d6a4f").pack(side="left", padx=4)
         ctk.CTkButton(btn_row, text=t("kindle_btn"), command=self._send_kindle,
                       height=36, fg_color="gray50").pack(side="left", padx=4)
@@ -798,7 +816,9 @@ class ReBookApp:
                     return
 
         self._converting = True
+        self._cancel_flag = False
         self._convert_btn.configure(state="disabled", text=t("converting_btn"))
+        self._stop_btn.pack(side="right", padx=(4, 0))
         self._result_frame.pack_forget()
         self._progress_bar.set(0)
         self._progress_bar.pack(fill="x", padx=24, pady=(8, 2))
@@ -821,14 +841,35 @@ class ReBookApp:
         args = (str(self._selected_file), fmt, use_llm, translate, translate_images, verify, lang_from, lang_to)
         threading.Thread(target=self._run_conversion, args=args, daemon=True).start()
 
+    def _stop_conversion(self):
+        """User clicked Stop — set cancel flag."""
+        self._cancel_flag = True
+        self._stage_label.configure(text="⛔ Zatrzymywanie…")
+        self._append_log("⛔ Zatrzymywanie konwersji…")
+
     def _run_conversion(self, path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to):
         try:
             import converter
+
+            def _progress_with_cancel(stage, pct, msg):
+                if self._cancel_flag:
+                    raise InterruptedError("⛔ Konwersja zatrzymana przez użytkownika")
+                self._on_progress(stage, pct, msg)
+
             result = converter.convert_file(
-                path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to,
-                progress_callback=self._on_progress,
+                input_path=path,
+                output_format=fmt,
+                use_llm=use_llm,
+                use_translate=translate,
+                translate_images=translate_images,
+                verify_translation=verify,
+                lang_from=lang_from,
+                lang_to=lang_to,
+                progress_callback=_progress_with_cancel,
             )
             self._ui_queue.put(("done", result))
+        except InterruptedError:
+            self._ui_queue.put(("cancelled", None))
         except Exception as e:
             import traceback; traceback.print_exc()
             self._ui_queue.put(("error", str(e)))
@@ -843,6 +884,8 @@ class ReBookApp:
                 self._update_progress(data)
             elif kind == "done":
                 self._conversion_done(data)
+            elif kind == "cancelled":
+                self._conversion_cancelled()
             elif kind == "error":
                 self._conversion_error(data)
         self.root.after(100, self._poll_queue)
@@ -881,21 +924,25 @@ class ReBookApp:
         self._output_path = output_path
         self._converting = False
         self._convert_btn.configure(state="normal", text=t("convert_btn"))
+        self._stop_btn.pack_forget()
         self._progress_bar.set(1.0)
         self._stage_label.configure(text=t("done"))
         self._log_box.pack_forget()  # hide log to make room for result
         self._result_frame.pack(fill="x", padx=24, pady=8)
         self._append_log(t("all_done", name=Path(output_path).name))
-        # Auto-open containing folder so user can find the file
-        try:
-            folder = str(Path(output_path).parent)
-            os.startfile(folder)
-        except Exception:
-            pass
+
+    def _conversion_cancelled(self):
+        self._converting = False
+        self._convert_btn.configure(state="normal", text=t("convert_btn"))
+        self._stop_btn.pack_forget()
+        self._progress_bar.pack_forget()
+        self._stage_label.configure(text="⛔ Konwersja zatrzymana")
+        self._append_log("⛔ Konwersja zatrzymana przez użytkownika")
 
     def _conversion_error(self, error_msg):
         self._converting = False
         self._convert_btn.configure(state="normal", text=t("convert_btn"))
+        self._stop_btn.pack_forget()
         self._stage_label.configure(text=f"{t('error_prefix')}: {error_msg}")
         self._append_log(f"{t('error_prefix')}: {error_msg}")
         from tkinter import messagebox

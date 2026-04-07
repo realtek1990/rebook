@@ -352,11 +352,11 @@ STRINGS = {
         "ja": "✅ 準備完了！ボタンをクリックしてReBookを起動してください。",
     },
     "inst_marker_hint": {
-        "pl": "\n\n💡 Aby później doinstalować Marker OCR,\notwórz Terminal i wpisz:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "en": "\n\n💡 To install Marker OCR later,\nopen Terminal and type:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "de": "\n\n💡 Um Marker OCR später zu installieren,\nöffne Terminal und gib ein:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "ru": "\n\n💡 Чтобы установить Marker OCR позже,\nоткройте Терминал и введите:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "uk": "\n\n💡 Щоб встановити Marker OCR пізніше,\nвідкрийте Термінал і введіть:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
+        "pl": "\n\n💡 Aby później doinstalować Marker OCR,\notwórz Terminal/Wiersz poleceń i wpisz:\npip install marker-pdf",
+        "en": "\n\n💡 To install Marker OCR later,\nopen Terminal/Command Prompt and type:\npip install marker-pdf",
+        "de": "\n\n💡 Um Marker OCR später zu installieren,\nöffne Terminal/Eingabeaufforderung und gib ein:\npip install marker-pdf",
+        "ru": "\n\n💡 Чтобы установить Marker OCR позже,\nоткройте Терминал/Командную строку и введите:\npip install marker-pdf",
+        "uk": "\n\n💡 Щоб встановити Marker OCR пізніше,\nвідкрийте Термінал/Командний рядок і введіть:\npip install marker-pdf",
     },
 
     # ═══════════════════════════════════════════════════════════════════
@@ -636,6 +636,88 @@ STRINGS = {
         "pl": "Błąd zapisu", "en": "Save error",
         "de": "Speicherfehler", "es": "Error al guardar",
     },
+    "settings_marker_header": {
+        "pl": "MARKER OCR / PDF", "en": "MARKER OCR / PDF",
+        "de": "MARKER OCR / PDF", "es": "MARKER OCR / PDF",
+        "fr": "MARKER OCR / PDF", "ru": "MARKER OCR / PDF",
+        "uk": "MARKER OCR / PDF", "zh": "MARKER OCR / PDF",
+        "ja": "MARKER OCR / PDF", "it": "MARKER OCR / PDF",
+        "tr": "MARKER OCR / PDF", "nl": "MARKER OCR / PDF",
+    },
+    "settings_marker_installed": {
+        "pl": "✅ Marker OCR zainstalowany — obsługa PDF aktywna",
+        "en": "✅ Marker OCR installed — PDF support active",
+        "de": "✅ Marker OCR installiert — PDF-Unterstützung aktiv",
+        "es": "✅ Marker OCR instalado — soporte PDF activo",
+        "fr": "✅ Marker OCR installé — support PDF actif",
+        "ru": "✅ Marker OCR установлен — поддержка PDF активна",
+        "uk": "✅ Marker OCR встановлено — підтримка PDF активна",
+        "zh": "✅ Marker OCR 已安装 — PDF支持已激活",
+        "ja": "✅ Marker OCR インストール済み — PDFサポート有効",
+        "it": "✅ Marker OCR installato — supporto PDF attivo",
+        "tr": "✅ Marker OCR kurulu — PDF desteği aktif",
+        "nl": "✅ Marker OCR geïnstalleerd — PDF-ondersteuning actief",
+    },
+    "settings_marker_not_installed": {
+        "pl": "❌ Marker OCR niezainstalowany — brak obsługi PDF",
+        "en": "❌ Marker OCR not installed — no PDF support",
+        "de": "❌ Marker OCR nicht installiert — kein PDF-Support",
+        "es": "❌ Marker OCR no instalado — sin soporte PDF",
+        "fr": "❌ Marker OCR non installé — pas de support PDF",
+        "ru": "❌ Marker OCR не установлен — нет поддержки PDF",
+        "uk": "❌ Marker OCR не встановлено — немає підтримки PDF",
+        "zh": "❌ Marker OCR 未安装 — 不支持PDF",
+        "ja": "❌ Marker OCR 未インストール — PDF非対応",
+        "it": "❌ Marker OCR non installato — nessun supporto PDF",
+        "tr": "❌ Marker OCR kurulu değil — PDF desteği yok",
+        "nl": "❌ Marker OCR niet geïnstalleerd — geen PDF-ondersteuning",
+    },
+    "settings_marker_install_btn": {
+        "pl": "📦  Zainstaluj Marker OCR (~1 GB)",
+        "en": "📦  Install Marker OCR (~1 GB)",
+        "de": "📦  Marker OCR installieren (~1 GB)",
+        "es": "📦  Instalar Marker OCR (~1 GB)",
+        "fr": "📦  Installer Marker OCR (~1 Go)",
+        "ru": "📦  Установить Marker OCR (~1 ГБ)",
+        "uk": "📦  Встановити Marker OCR (~1 ГБ)",
+        "zh": "📦  安装 Marker OCR (~1 GB)",
+        "ja": "📦  Marker OCRをインストール (~1 GB)",
+        "it": "📦  Installa Marker OCR (~1 GB)",
+        "tr": "📦  Marker OCR'yi Kur (~1 GB)",
+        "nl": "📦  Marker OCR installeren (~1 GB)",
+    },
+    "settings_marker_installing": {
+        "pl": "⏳ Instalacja Marker OCR… To może potrwać kilka minut.",
+        "en": "⏳ Installing Marker OCR… This may take a few minutes.",
+        "de": "⏳ Marker OCR wird installiert… Dies kann einige Minuten dauern.",
+        "es": "⏳ Instalando Marker OCR… Esto puede tardar unos minutos.",
+        "fr": "⏳ Installation de Marker OCR… Cela peut prendre quelques minutes.",
+        "ru": "⏳ Установка Marker OCR… Это может занять несколько минут.",
+        "uk": "⏳ Встановлення Marker OCR… Це може зайняти кілька хвилин.",
+        "zh": "⏳ 正在安装 Marker OCR… 这可能需要几分钟。",
+        "ja": "⏳ Marker OCR をインストール中… 数分かかる場合があります。",
+    },
+    "settings_marker_done": {
+        "pl": "✅ Marker OCR zainstalowany! Restartuj ReBook.",
+        "en": "✅ Marker OCR installed! Restart ReBook.",
+        "de": "✅ Marker OCR installiert! ReBook neu starten.",
+        "es": "✅ ¡Marker OCR instalado! Reinicia ReBook.",
+        "fr": "✅ Marker OCR installé ! Redémarrez ReBook.",
+        "ru": "✅ Marker OCR установлен! Перезапустите ReBook.",
+        "uk": "✅ Marker OCR встановлено! Перезапустіть ReBook.",
+        "zh": "✅ Marker OCR 已安装！请重启 ReBook。",
+        "ja": "✅ Marker OCR インストール完了！ReBookを再起動してください。",
+    },
+    "settings_marker_error": {
+        "pl": "❌ Błąd instalacji Marker OCR",
+        "en": "❌ Marker OCR installation failed",
+        "de": "❌ Marker OCR Installation fehlgeschlagen",
+        "es": "❌ Error en la instalación de Marker OCR",
+        "ru": "❌ Ошибка установки Marker OCR",
+        "uk": "❌ Помилка встановлення Marker OCR",
+        "zh": "❌ Marker OCR 安装失败",
+        "ja": "❌ Marker OCR のインストールに失敗",
+    },
 
     # ═══════════════════════════════════════════════════════════════════
     #  CONVERTER / CORRECTOR PROGRESS
@@ -764,109 +846,23 @@ STRINGS = {
         "pl": "Uzupełnij dane Kindle w Ustawieniach (⚙️)",
         "en": "Fill in Kindle settings (⚙️)",
     },
-
-    # ═══════════════════════════════════════════════════════════════════
-    #  HARDWARE SAFETY WARNINGS
-    # ═══════════════════════════════════════════════════════════════════
-    "hw_warn_title": {
-        "pl": "⚠️ Ostrzeżenie sprzętowe",
-        "en": "⚠️ Hardware Warning",
-        "de": "⚠️ Hardware-Warnung",
-        "es": "⚠️ Advertencia de hardware",
-        "fr": "⚠️ Avertissement matériel",
-        "ru": "⚠️ Предупреждение о железе",
-        "uk": "⚠️ Попередження щодо обладнання",
-        "zh": "⚠️ 硬件警告",
-        "ja": "⚠️ ハードウェア警告",
+    "open_folder_btn": {
+        "pl": "📁 Otwórz folder", "en": "📁 Open folder",
+        "de": "📁 Ordner öffnen", "es": "📁 Abrir carpeta",
+        "fr": "📁 Ouvrir le dossier", "ru": "📁 Открыть папку",
+        "uk": "📁 Відкрити теку", "zh": "📁 打开文件夹", "ja": "📁 フォルダを開く",
+        "it": "📁 Apri cartella", "tr": "📁 Klasörü aç", "nl": "📁 Map openen",
     },
-    "hw_warn_low_ram": {
-        "pl": "⚠️ Twój komputer ma tylko {ram_gb:.1f} GB RAM.\n\n"
-              "Konwersja PDF wymaga Marker OCR + PyTorch,\n"
-              "które zużywają ~4 GB RAM.\n\n"
-              "Przy tak małej ilości pamięci komputer może:\n"
-              "  • Stać się bardzo wolny\n"
-              "  • Wyłączyć się z przegrzania (!)\n\n"
-              "Zalecenia:\n"
-              "  • Zamknij inne programy przed konwersją\n"
-              "  • Konwertuj EPUB zamiast PDF (nie wymaga OCR)\n"
-              "  • Minimum 8 GB RAM (zalecane 16 GB)\n\n"
-              "Czy kontynuować mimo to?",
-        "en": "⚠️ Your computer has only {ram_gb:.1f} GB RAM.\n\n"
-              "PDF conversion requires Marker OCR + PyTorch,\n"
-              "which consume ~4 GB RAM.\n\n"
-              "With this little memory your computer may:\n"
-              "  • Become very slow\n"
-              "  • Shut down from overheating (!)\n\n"
-              "Recommendations:\n"
-              "  • Close other programs before converting\n"
-              "  • Convert EPUB instead of PDF (no OCR needed)\n"
-              "  • Minimum 8 GB RAM (16 GB recommended)\n\n"
-              "Continue anyway?",
-        "de": "⚠️ Ihr Computer hat nur {ram_gb:.1f} GB RAM.\n\n"
-              "PDF-Konvertierung erfordert Marker OCR + PyTorch,\n"
-              "die ~4 GB RAM verbrauchen.\n\n"
-              "Bei so wenig Speicher kann der Computer:\n"
-              "  • Sehr langsam werden\n"
-              "  • Sich wegen Überhitzung abschalten (!)\n\n"
-              "Trotzdem fortfahren?",
-        "ru": "⚠️ На вашем компьютере всего {ram_gb:.1f} ГБ ОЗУ.\n\n"
-              "Конвертация PDF требует Marker OCR + PyTorch,\n"
-              "которые используют ~4 ГБ RAM.\n\n"
-              "При таком объёме памяти компьютер может:\n"
-              "  • Стать очень медленным\n"
-              "  • Выключиться от перегрева (!)\n\n"
-              "Продолжить?",
-        "uk": "⚠️ Ваш комп'ютер має лише {ram_gb:.1f} ГБ ОЗП.\n\n"
-              "Конвертація PDF вимагає Marker OCR + PyTorch,\n"
-              "які використовують ~4 ГБ RAM.\n\n"
-              "Із такою кількістю пам'яті комп'ютер може:\n"
-              "  • Стати дуже повільним\n"
-              "  • Вимкнутися через перегрів (!)\n\n"
-              "Продовжити?",
-        "zh": "⚠️ 您的计算机只有 {ram_gb:.1f} GB RAM。\n\n"
-              "PDF转换需要 Marker OCR + PyTorch，\n"
-              "大约消耗 ~4 GB RAM。\n\n"
-              "内存不足可能导致：\n"
-              "  • 电脑非常卡顿\n"
-              "  • 因过热自动关机 (!)\n\n"
-              "仍然继续？",
-        "ja": "⚠️ お使いのコンピュータのRAMは {ram_gb:.1f} GBしかありません。\n\n"
-              "PDF変換にはMarker OCR + PyTorchが必要で、\n"
-              "約4 GBのRAMを消費します。\n\n"
-              "メモリが少ないため：\n"
-              "  • 非常に遅くなる可能性があります\n"
-              "  • 過熱によりシャットダウンする可能性があります (!)\n\n"
-              "続行しますか？",
-    },
-    "hw_warn_throttled": {
-        "pl": "⚡ Tryb oszczędny: ograniczono obciążenie CPU aby zapobiec przegrzaniu",
-        "en": "⚡ Eco mode: CPU load limited to prevent overheating",
-        "de": "⚡ Sparmodus: CPU-Last begrenzt um Überhitzung zu verhindern",
-        "ru": "⚡ Экономный режим: нагрузка CPU ограничена для предотвращения перегрева",
-        "uk": "⚡ Економний режим: навантаження CPU обмежено для запобігання перегріву",
-        "zh": "⚡ 省电模式：限制CPU负载以防过热",
-        "ja": "⚡ エコモード：過熱防止のためCPU負荷を制限しました",
-    },
-    "settings_marker_header": {
-        "pl": "MARKER OCR", "en": "MARKER OCR",
-    },
-    "settings_marker_installed": {
-        "pl": "✅ Marker OCR zainstalowany", "en": "✅ Marker OCR installed",
-    },
-    "settings_marker_not_installed": {
-        "pl": "⚠️ Marker OCR nie zainstalowany", "en": "⚠️ Marker OCR not installed",
-    },
-    "settings_marker_install_btn": {
-        "pl": "Zainstaluj Marker OCR", "en": "Install Marker OCR",
-    },
-    "settings_marker_installing": {
-        "pl": "⏳ Instalowanie...", "en": "⏳ Installing...",
-    },
-    "settings_marker_done": {
-        "pl": "✅ Marker OCR zainstalowany!", "en": "✅ Marker OCR installed!",
-    },
-    "settings_marker_error": {
-        "pl": "❌ Błąd instalacji Marker OCR", "en": "❌ Marker OCR installation error",
+    "verify_check": {
+        "pl": "🔍 Weryfikacja tłumaczenia (dodatkowy przebieg AI — wolniejsze, droższe)",
+        "en": "🔍 Verify translation (extra AI pass — slower, more expensive)",
+        "de": "🔍 Übersetzung überprüfen (zusätzlicher KI-Durchlauf — langsamer, teurer)",
+        "es": "🔍 Verificar traducción (pasada extra de IA — más lenta y cara)",
+        "fr": "🔍 Vérifier la traduction (passage IA supplémentaire — plus lent, plus cher)",
+        "ru": "🔍 Проверка перевода (дополнительный проход ИИ — медленнее, дороже)",
+        "uk": "🔍 Перевірка перекладу (додатковий прохід ШІ — повільніше, дорожче)",
+        "zh": "🔍 验证翻译（额外AI处理 — 更慢、更贵）",
+        "ja": "🔍 翻訳を検証（追加AIパス — より遅く、より高価）",
     },
 }
 

@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -10,7 +11,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Domyślny timeout openai to 120s, co powoduje ciche ReadTimeout + retry w nieskończoność.
 os.environ['OPENAI_TIMEOUT'] = '600'
 
-WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
+if sys.platform == "win32":
+    WORKSPACE_DIR = Path.home() / ".rebook"
+else:
+    WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
 CONFIG_FILE = WORKSPACE_DIR / "config.json"
 
 def get_config() -> dict:
@@ -24,16 +28,41 @@ def get_system_prompt(use_translate: bool, lang_to: str, lang_from: str) -> str:
     if use_translate:
         frm = f"z języka: {lang_from}" if lang_from else "z języka źródłowego"
         to = lang_to if lang_to else "polski"
+        # Dynamic examples based on target language
+        if to.lower().startswith("pol"):
+            ex1 = '"Chapter 1—My Life" → "# Rozdział 1 — Moje życie"'
+            ex2 = '"Introduction" → "# Wprowadzenie"'
+            ex3 = '"Foreword" → "# Przedmowa"'
+        elif to.lower().startswith("ang") or to.lower().startswith("eng"):
+            ex1 = '"Rozdział 1 — Moje życie" → "# Chapter 1 — My Life"'
+            ex2 = '"Wprowadzenie" → "# Introduction"'
+            ex3 = '"Przedmowa" → "# Foreword"'
+        elif to.lower().startswith("niem") or to.lower().startswith("deu") or to.lower().startswith("ger"):
+            ex1 = '"Chapter 1—My Life" → "# Kapitel 1 — Mein Leben"'
+            ex2 = '"Introduction" → "# Einleitung"'
+            ex3 = '"Foreword" → "# Vorwort"'
+        elif to.lower().startswith("fra") or to.lower().startswith("fran"):
+            ex1 = '"Chapter 1—My Life" → "# Chapitre 1 — Ma vie"'
+            ex2 = '"Introduction" → "# Introduction"'
+            ex3 = '"Foreword" → "# Avant-propos"'
+        elif to.lower().startswith("hisz") or to.lower().startswith("esp") or to.lower().startswith("spa"):
+            ex1 = '"Chapter 1—My Life" → "# Capítulo 1 — Mi vida"'
+            ex2 = '"Introduction" → "# Introducción"'
+            ex3 = '"Foreword" → "# Prólogo"'
+        else:
+            ex1 = f'"Chapter 1—My Life" → "# [Chapter 1 — My Life in {to}]"'
+            ex2 = f'"Introduction" → "# [Introduction in {to}]"'
+            ex3 = f'"Foreword" → "# [Foreword in {to}]"'
         return f"""Jesteś profesjonalnym tłumaczem książek. Twoim zadaniem jest przetłumaczenie poniższego tekstu {frm} na język {to}.
 
 Zasady:
 1. Tekst ma być przetłumaczony w sposób naturalny dla czytelnika z zachowaniem najwyższej poprawności oraz oryginalnego kontekstu wyjściowego autora.
 2. Przetłumacz ABSOLUTNIE WSZYSTKO na język {to} — w tym nagłówki, cytaty, podpisy, dialogi i wszelkie fragmenty w języku obcym. NIE zostawiaj niczego w oryginalnym języku. Jedyny wyjątek: tytuły książek w cudzysłowach i nazwy własne organizacji.
 3. ZACHOWAJ FORMATOWANIE Markdown (nagłówki #, pogrubienia **, listy -, cytaty >). Nie zmieniaj ich składni.
-4. NAGŁÓWKI ROZDZIAŁÓW: Jeśli tekst zawiera nagłówki typu "Chapter X — Title", "Introduction", "Foreword", "Preface", "Appendix" — przetłumacz je i oznacz jako nagłówki Markdown:
-   - "Chapter 1—My Life" → "# Rozdział 1 — Moje życie"
-   - "Introduction" → "# Wprowadzenie"
-   - "Foreword" → "# Przedmowa"
+4. NAGŁÓWKI ROZDZIAŁÓW: Jeśli tekst zawiera nagłówki typu "Chapter X — Title", "Introduction", "Foreword", "Preface", "Appendix" — przetłumacz je na język {to} i oznacz jako nagłówki Markdown. Przykłady:
+   - {ex1}
+   - {ex2}
+   - {ex3}
 5. NIE ŁĄCZ i NIE POMIJAJ akapitów. Każdy akapit z oryginału MUSI pojawić się w tłumaczeniu. Nie skracaj tekstu.
 6. NAGŁÓWKI (linie zaczynające się od #): Nagłówek to TYLKO krótki tytuł rozdziału lub sekcji (max 1-2 zdania). Jeśli widzisz że po znaku # znajduje się długi akapit (ponad 2 zdania), zamień go na zwykły tekst pogrubiony (**tekst**) — to ewidentny błąd formatowania z OCR.
 7. WYCZYŚĆ ARTEFAKTY: Jeśli w tekście występują śmieci techniczne takie jak: deklaracje XML (<?xml ...?>), znaczniki HTML (<div>, <span>, itp.), kody DOCTYPE, encje HTML (&amp; &nbsp;) — USUŃ JE i zostaw tylko czysty tekst.
@@ -337,8 +366,13 @@ def correct_markdown(
 
     # ═══ POST-TRANSLATION QUALITY GATE ═══
     # Check each chunk: if >30% lines look like source language, re-translate
-    # FIX: Gate runs whenever translating — lang_from may be empty (auto-detect)
-    if use_translate:
+    # SKIP this gate when translating TO English — the detector is English-hardcoded
+    # and would flag correct English output as "untranslated source"
+    _target_is_english = lang_to.lower().strip() in (
+        "angielski", "english", "eng", "anglais", "englisch", "inglés",
+        "inglese", "английский", "англійська", "英语", "英語",
+    )
+    if use_translate and not _target_is_english:
         if progress_callback:
             progress_callback(total, total, "🔬 Kontrola jakości tłumaczenia...")
         
@@ -611,7 +645,7 @@ ZWRÓĆ TYLKO POPRAWIONY TEKST TŁUMACZENIA."""
 
 Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). Pamiętaj o punktach 1-4 z instrukcji."""
 
-        MAX_VERIFY_RETRIES = 10
+        MAX_VERIFY_RETRIES = 3
         for attempt in range(MAX_VERIFY_RETRIES):
             try:
                 kwargs = {
@@ -623,35 +657,44 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
                     ],
                     "temperature": 0.1,
                     "max_tokens": 65536,
-                    "timeout": 300,
+                    "timeout": 120,
                 }
                 if api_base:
                     kwargs["api_base"] = api_base
 
                 response = litellm.completion(**kwargs)
                 result = response.choices[0].message.content
-                if result and len(result.strip()) > 50:
+                if result and result.strip():
+                    # If AI returned substantial text → use as verified version
+                    # If AI returned short response (e.g. 'translation is correct')
+                    # → original translation was fine, keep it
+                    verified = result.strip()
+                    if len(verified) < len(trans_chunk) * 0.3:
+                        # Response too short vs input = AI said "it's fine", keep original
+                        verified = trans_chunk
                     with lock:
                         done_count[0] += 1
                         if progress_callback:
                             progress_callback(done_count[0], total_chunks,
                                 f"✅ Segment {idx+1}/{total_chunks} zweryfikowany "
                                 f"({done_count[0]}/{total_chunks})")
-                    return result.strip()
+                    return verified
                 else:
-                    time.sleep(3 * (attempt + 1))
+                    time.sleep(2)
             except Exception as e:
                 if progress_callback:
                     with lock:
                         progress_callback(done_count[0], total_chunks,
-                            f"❌ Segment {idx+1} próba {attempt+1}/{MAX_VERIFY_RETRIES}: {e}")
-                time.sleep(5 * (attempt + 1))
+                            f"⚠️ Segment {idx+1} próba {attempt+1}/{MAX_VERIFY_RETRIES}: {e}")
+                time.sleep(3)
 
-        raise RuntimeError(
-            f"❌ BŁĄD KRYTYCZNY: Weryfikacja segmentu {idx+1}/{total_chunks} "
-            f"nie powiodła się mimo {MAX_VERIFY_RETRIES} prób!\n\n"
-            f"Spróbuj ponownie lub zmień model AI w Ustawieniach."
-        )
+        # Exhausted retries — use original translation instead of crashing
+        with lock:
+            done_count[0] += 1
+            if progress_callback:
+                progress_callback(done_count[0], total_chunks,
+                    f"⚠️ Segment {idx+1}: weryfikacja nie powiodła się, zachowano oryginalne tłumaczenie")
+        return trans_chunk
 
     if progress_callback:
         progress_callback(0, total_chunks,
@@ -790,6 +833,8 @@ def _deep_translate_clusters(
 
     results = {}
     lock = threading.Lock()
+    done_clusters = [0]
+    total_clusters = len(real_clusters)
     
     def _translate_cluster(idx, chunk_text):
         prompt = f"""Przetłumacz CAŁY poniższy tekst.
@@ -826,6 +871,11 @@ Oto tekst:
         for f in as_completed(futures):
             s, e = futures[f]
             results[(s, e)] = f.result()
+            with lock:
+                done_clusters[0] += 1
+                if progress_callback:
+                    progress_callback(done_clusters[0], total_clusters,
+                        f"🔬 Retłumaczenie klastra {done_clusters[0]}/{total_clusters}...")
 
     for (start, end), translated in sorted(results.items(), reverse=True):
         lines[start:end] = translated.split('\n')

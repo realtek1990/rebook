@@ -352,11 +352,11 @@ STRINGS = {
         "ja": "✅ 準備完了！ボタンをクリックしてReBookを起動してください。",
     },
     "inst_marker_hint": {
-        "pl": "\n\n💡 Aby później doinstalować Marker OCR,\notwórz Terminal i wpisz:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "en": "\n\n💡 To install Marker OCR later,\nopen Terminal and type:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "de": "\n\n💡 Um Marker OCR später zu installieren,\nöffne Terminal und gib ein:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "ru": "\n\n💡 Чтобы установить Marker OCR позже,\nоткройте Терминал и введите:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
-        "uk": "\n\n💡 Щоб встановити Marker OCR пізніше,\nвідкрийте Термінал і введіть:\n~/.pdf2epub-app/env/bin/pip install marker-pdf",
+        "pl": "\n\n💡 Aby później doinstalować Marker OCR,\notwórz Terminal/Wiersz poleceń i wpisz:\npip install marker-pdf",
+        "en": "\n\n💡 To install Marker OCR later,\nopen Terminal/Command Prompt and type:\npip install marker-pdf",
+        "de": "\n\n💡 Um Marker OCR später zu installieren,\nöffne Terminal/Eingabeaufforderung und gib ein:\npip install marker-pdf",
+        "ru": "\n\n💡 Чтобы установить Marker OCR позже,\nоткройте Терминал/Командную строку и введите:\npip install marker-pdf",
+        "uk": "\n\n💡 Щоб встановити Marker OCR пізніше,\nвідкрийте Термінал/Командний рядок і введіть:\npip install marker-pdf",
     },
 
     # ═══════════════════════════════════════════════════════════════════
@@ -845,6 +845,24 @@ STRINGS = {
     "kindle_no_config": {
         "pl": "Uzupełnij dane Kindle w Ustawieniach (⚙️)",
         "en": "Fill in Kindle settings (⚙️)",
+    },
+    "open_folder_btn": {
+        "pl": "📁 Otwórz folder", "en": "📁 Open folder",
+        "de": "📁 Ordner öffnen", "es": "📁 Abrir carpeta",
+        "fr": "📁 Ouvrir le dossier", "ru": "📁 Открыть папку",
+        "uk": "📁 Відкрити теку", "zh": "📁 打开文件夹", "ja": "📁 フォルダを開く",
+        "it": "📁 Apri cartella", "tr": "📁 Klasörü aç", "nl": "📁 Map openen",
+    },
+    "verify_check": {
+        "pl": "🔍 Weryfikacja tłumaczenia (dodatkowy przebieg AI — wolniejsze, droższe)",
+        "en": "🔍 Verify translation (extra AI pass — slower, more expensive)",
+        "de": "🔍 Übersetzung überprüfen (zusätzlicher KI-Durchlauf — langsamer, teurer)",
+        "es": "🔍 Verificar traducción (pasada extra de IA — más lenta y cara)",
+        "fr": "🔍 Vérifier la traduction (passage IA supplémentaire — plus lent, plus cher)",
+        "ru": "🔍 Проверка перевода (дополнительный проход ИИ — медленнее, дороже)",
+        "uk": "🔍 Перевірка перекладу (додатковий прохід ШІ — повільніше, дорожче)",
+        "zh": "🔍 验证翻译（额外AI处理 — 更慢、更贵）",
+        "ja": "🔍 翻訳を検証（追加AIパス — より遅く、より高価）",
     },
 }
 

@@ -3,10 +3,12 @@
 Synchronous module usable by both the native macOS GUI and the web interface.
 Delegates AI correction/translation to corrector.py.
 """
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Callable, Optional
@@ -171,12 +173,31 @@ def convert_file(
     report("export", 50, f"Eksport → {output_format.upper()}…")
     basename = src.stem
 
+    # When translating, add target language suffix to filename
+    if use_translate and lang_to:
+        lang_suffix = lang_to.strip().lower()[:3]  # "ang", "pol", "nie", etc.
+        basename = f"{basename}_{lang_suffix}"
+
+    # Map common language names to ISO 639-1 codes for EPUB metadata
+    _lang_codes = {
+        "polski": "pl", "angielski": "en", "english": "en",
+        "niemiecki": "de", "francuski": "fr", "hiszpański": "es",
+        "włoski": "it", "portugalski": "pt", "rosyjski": "ru",
+        "ukraiński": "uk", "czeski": "cs", "słowacki": "sk",
+        "chiński": "zh", "japoński": "ja", "koreański": "ko",
+        "turecki": "tr", "arabski": "ar", "holenderski": "nl",
+        "szwedzki": "sv", "norweski": "no", "duński": "da",
+        "fiński": "fi", "węgierski": "hu", "rumuński": "ro",
+    }
+    epub_lang = _lang_codes.get(lang_to.strip().lower(), "pl") if use_translate else "pl"
+    epub_title = f"{src.stem} [{lang_to}]" if use_translate else src.stem
+
     if output_format == "epub":
         out = job_dir / f"{basename}.epub"
         book = epub.EpubBook()
         book.set_identifier(f"rebook-{uuid.uuid4().hex[:8]}")
-        book.set_title(basename)
-        book.set_language("pl")
+        book.set_title(epub_title)
+        book.set_language(epub_lang)
         _extract_cover(src, book)
         # Embed all collected images into the EPUB
         # Both original and translated versions (translated in images_translated/ subfolder)
@@ -278,79 +299,145 @@ def _run_marker(pdf: Path, job_dir: Path, cb) -> str:
             "Zainstaluj go w Ustawieniach (⚙️) → Install Marker OCR."
         )
 
+    # Try MPS first (fast), then fallback to CPU if OOM
+    for attempt, device in enumerate(["mps", "cpu"]):
+        result = _run_marker_attempt(marker_bin, pdf, job_dir, cb, device)
+        if result is not None:
+            return result
+        # MPS failed — retry on CPU
+        if cb:
+            cb("ocr", 0, "⚠️ Brak pamięci GPU — ponawiam na CPU…")
+
+    raise RuntimeError("Marker OCR failed — za mało RAM nawet w trybie CPU")
+
+
+def _run_marker_attempt(marker_bin: str, pdf: Path, job_dir: Path, cb, device: str):
+    """Single attempt to run Marker OCR. Returns markdown text or None on OOM."""
     marker_out = job_dir / "marker_output"
+    # Clean output dir from previous failed attempt
+    if marker_out.exists():
+        import shutil
+        shutil.rmtree(marker_out, ignore_errors=True)
+
+    # ── Environment ───────────────────────────────────────────────────────
     env = os.environ.copy()
+    # Legacy env vars (still respected by some Marker versions)
     for k in ("RECOGNITION_BATCH_SIZE", "DETECTOR_BATCH_SIZE",
               "LAYOUT_BATCH_SIZE", "TABLE_REC_BATCH_SIZE", "OCR_ERROR_BATCH_SIZE"):
-        env[k] = "2"
+        env[k] = "1"
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-    env.pop("TORCH_DEVICE", None)
+    # Allow MPS to use full unified memory (prevents premature OOM on M-series)
+    env["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
 
-    popen_kwargs = {
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.STDOUT,
-        "env": env,
+    if device == "cpu":
+        env["TORCH_DEVICE"] = "cpu"
+    else:
+        env.pop("TORCH_DEVICE", None)  # Let torch auto-select MPS
+
+    # ── Config JSON (Marker v1.10+ reads batch sizes from here) ───────────
+    config = {
+        "recognition_batch_size": 1,
+        "detector_batch_size": 1,
+        "layout_batch_size": 1,
+        "table_rec_batch_size": 1,
+        "ocr_error_batch_size": 1,
     }
-    if sys.platform == "win32":
-        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    config_fd, config_path = tempfile.mkstemp(suffix=".json", prefix="marker_cfg_")
+    try:
+        with os.fdopen(config_fd, "w") as f:
+            json.dump(config, f)
 
-    proc = subprocess.Popen(
-        [marker_bin, str(pdf), "--output_dir", str(marker_out),
-         "--output_format", "markdown"],
-        **popen_kwargs,
-    )
+        cmd = [
+            marker_bin, str(pdf),
+            "--output_dir", str(marker_out),
+            "--output_format", "markdown",
+            "--config_json", config_path,
+        ]
 
-    # Marker OCR has multiple internal phases, each reporting its own 0-100%.
-    # Map each phase to a sub-range so the user sees a single monotonic 0→100%.
-    phase_ranges = {
-        "detect":      (0, 20),
-        "layout":      (20, 40),
-        "recognition": (40, 60),
-        "ocr":         (40, 60),   # alias
-        "table":       (60, 75),
-        "order":       (75, 85),
-        "error":       (85, 95),
-        "cleanup":     (85, 95),   # alias
-    }
-    current_phase = "detect"
-    last_reported = -1
-    buf = ""
+        popen_kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "env": env,
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-    while True:
-        chunk = proc.stdout.read(128)
-        if not chunk:
-            break
-        buf += chunk.decode("utf-8", errors="replace")
+        device_label = "GPU" if device != "cpu" else "CPU"
+        if cb:
+            cb("ocr", 0, f"OCR ({device_label}) — uruchamiam Marker…")
 
-        # Detect phase changes from Marker's stdout
-        buf_lower = buf.lower()
-        for phase_key in phase_ranges:
-            if phase_key in buf_lower:
-                current_phase = phase_key
+        proc = subprocess.Popen(cmd, **popen_kwargs)
 
-        # Parse latest percentage
-        m = list(re.finditer(r"(\d{1,3})%", buf))
-        if m and cb:
-            raw_pct = int(m[-1].group(1))
-            lo, hi = phase_ranges.get(current_phase, (0, 100))
-            mapped_pct = lo + int(raw_pct * (hi - lo) / 100)
-            mapped_pct = min(mapped_pct, 99)
-            if mapped_pct > last_reported:
-                last_reported = mapped_pct
-                phase_label = current_phase.capitalize()
-                cb("ocr", mapped_pct, f"OCR ({phase_label}) — {mapped_pct}%")
+        # Marker OCR has multiple internal phases, each reporting its own 0-100%.
+        # Map each phase to a sub-range so the user sees a single monotonic 0→100%.
+        phase_ranges = {
+            "detect":      (0, 20),
+            "layout":      (20, 40),
+            "recognition": (40, 60),
+            "ocr":         (40, 60),   # alias
+            "table":       (60, 75),
+            "order":       (75, 85),
+            "error":       (85, 95),
+            "cleanup":     (85, 95),   # alias
+        }
+        current_phase = "detect"
+        last_reported = -1
+        buf = ""
 
-        if len(buf) > 2048:
-            buf = buf[-400:]
+        while True:
+            chunk = proc.stdout.read(128)
+            if not chunk:
+                break
+            buf += chunk.decode("utf-8", errors="replace")
 
-    proc.wait()
-    if proc.returncode != 0:
-        raise RuntimeError("Marker OCR failed — sprawdź czy masz wystarczająco RAM")
+            # Detect phase changes from Marker's stdout
+            buf_lower = buf.lower()
+            for phase_key in phase_ranges:
+                if phase_key in buf_lower:
+                    current_phase = phase_key
 
-    md_files = list(marker_out.rglob("*.md"))
-    if not md_files:
-        raise RuntimeError("Brak wyjścia Markdown z Marker OCR")
-    return md_files[0].read_text(encoding="utf-8")
+            # Parse latest percentage
+            m = list(re.finditer(r"(\d{1,3})%", buf))
+            if m and cb:
+                raw_pct = int(m[-1].group(1))
+                lo, hi = phase_ranges.get(current_phase, (0, 100))
+                mapped_pct = lo + int(raw_pct * (hi - lo) / 100)
+                mapped_pct = min(mapped_pct, 99)
+                if mapped_pct > last_reported:
+                    last_reported = mapped_pct
+                    phase_label = current_phase.capitalize()
+                    cb("ocr", mapped_pct, f"OCR ({device_label}/{phase_label}) — {mapped_pct}%")
+
+            if len(buf) > 2048:
+                buf = buf[-400:]
+
+        proc.wait()
+
+        if proc.returncode != 0:
+            # Check if it was an OOM / memory error — allow fallback
+            buf_lower = buf.lower()
+            is_oom = any(kw in buf_lower for kw in (
+                "out of memory", "oom", "mps backend", "memory",
+                "killed", "signal 9", "cannot allocate",
+            ))
+            if is_oom and device != "cpu":
+                return None  # Signal caller to retry on CPU
+            raise RuntimeError(
+                f"Marker OCR failed ({device_label}) — sprawdź czy masz wystarczająco RAM\n"
+                f"Ostatni log: {buf[-300:]}"
+            )
+
+        md_files = list(marker_out.rglob("*.md"))
+        if not md_files:
+            raise RuntimeError("Brak wyjścia Markdown z Marker OCR")
+        return md_files[0].read_text(encoding="utf-8")
+
+    finally:
+        # Clean up temp config file
+        try:
+            os.unlink(config_path)
+        except OSError:
+            pass
 
 
 def _extract_cover(src: Path, book):

@@ -69,6 +69,7 @@ pyinstaller ^
     --hidden-import markdownify ^
     --hidden-import PIL ^
     --hidden-import fitz ^
+    --hidden-import image_translator ^
     --hidden-import google.genai ^
     rebook_win.py
 ```
