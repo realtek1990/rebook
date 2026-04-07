@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Translate and convert e-books with state-of-the-art AI</strong><br>
-  Translation • Correction • OCR • macOS • Windows • Linux • 27 Languages
+  Translation • Correction • OCR • macOS • Windows • Linux • Android • 27 Languages
 </p>
 
 ---
@@ -61,7 +61,16 @@
 > sudo pacman -S tk
 > ```
 
-### Installation Options (first launch)
+### 🤖 Android
+
+1. Download **[ReBook.apk](https://github.com/realtek1990/rebook/releases/latest/download/ReBook.apk)** (~60 MB)
+2. On your phone: **Settings → Security → Install from unknown sources** → enable for your browser
+3. Open the downloaded APK and tap **Install**
+4. Launch **ReBook** and configure your AI API key in **⚙️ Settings**
+
+> 💡 Uses **Google ML Kit** for on-device PDF OCR — works offline, no additional downloads, supports 100+ languages.
+
+### Installation Options (desktop, first launch)
 
 | Option | Size | Capabilities |
 |--------|------|-------------|
@@ -77,6 +86,7 @@
 | 🍎 macOS | 11.0+ (Big Sur+), Apple Silicon or Intel, Python 3.9+ |
 | 🪟 Windows | 10/11, 64-bit, no additional dependencies |
 | 🐧 Linux | Ubuntu 20.04+ / Fedora 36+ / Arch, python3-tk |
+| 🤖 Android | 8.0+ (API 26+), ~60 MB, ML Kit OCR (built-in) |
 | 🔑 All | API key from any supported AI provider |
 
 ## 🚀 Usage
@@ -124,10 +134,17 @@ rebook/
 ├── linux/
 │   ├── rebook_linux.py           # Linux GUI (CustomTkinter)
 │   └── dist/                     # Build artifacts
+├── android/                       # 🤖 Native Android app
+│   ├── app/src/main/java/com/rebook/app/
+│   │   ├── domain/               # Converter, Corrector, OcrEngine, EpubWriter
+│   │   ├── ui/                   # Compose screens (Home, Settings)
+│   │   └── data/                 # AppConfig (DataStore)
+│   ├── app/src/main/res/         # strings.xml (EN, PL), icons
+│   └── build.gradle.kts          # Gradle config
 ├── assets/
 │   └── icon.ico                  # Multi-resolution app icon
 ├── .github/workflows/
-│   └── build_windows.yml         # CI: builds all 3 platforms
+│   └── build_windows.yml         # CI: builds all 4 platforms
 ├── build_dmg.sh                  # macOS DMG builder
 ├── sync_backend.sh               # Sync backend across platforms
 └── README.md
@@ -138,6 +155,7 @@ rebook/
 Settings are stored in:
 - **macOS**: `~/.pdf2epub-app/config.json`
 - **Windows/Linux**: `~/.rebook/config.json`
+- **Android**: `DataStore` (internal app storage, encrypted)
 
 ```json
 {

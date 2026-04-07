@@ -1,4 +1,4 @@
-name: Build ReBook (Windows, macOS, Linux)
+name: Build ReBook (Windows, macOS, Linux, Android)
 
 on:
   push:
@@ -172,7 +172,7 @@ jobs:
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            ## ReBook v2.5.0
+            ## ReBook v3.0.0
 
             ### 🍎 macOS
             Pobierz `ReBook.dmg`, zamontuj i przeciągnij **ReBook.app** do folderu Aplikacje.
@@ -183,15 +183,18 @@ jobs:
             ### 🐧 Linux
             Pobierz `ReBook-Linux`, nadaj uprawnienia (`chmod +x`) i uruchom.
 
+            ### 🤖 Android
+            Pobierz `ReBook.apk`, włącz "Instalacja z nieznanych źródeł" i zainstaluj.
+
             > Wymagane: klucz API (Gemini, OpenAI, Mistral lub inny) — skonfiguruj w Ustawieniach ⚙️
 
-            ### Co nowego w v2.5.0
+            ### Co nowego w v3.0.0
+            - 🤖 Wersja Android (Kotlin + Jetpack Compose + ML Kit OCR)
             - 🐧 Wersja Linux (Ubuntu/Debian/Fedora)
-            - 🎨 Wybór języka z listy (ComboBox z 27 językami)
-            - ⛔ Przycisk Stop — zatrzymanie trwającej konwersji
-            - 🔧 Fix tłumaczeń: dynamiczny prompt, brak biasu EN→PL
-            - 📝 Tytuł EPUB i nazwa pliku zawierają język docelowy
-            - 🖼️ Nowe profesjonalne logo aplikacji
+            - 🎨 Wybór języka z listy (27 języków)
+            - ⛔ Przycisk Stop — zatrzymanie konwersji
+            - 📱 Material Design 3 (dark/light mode)
+            - 📤 Share Intent — wyślij EPUB do Kindle/email
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Linux: Build ReBook binary
@@ -278,6 +281,64 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: linux/dist/ReBook-Linux
+          allowUpdates: true
+          generateReleaseNotes: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Android: Build ReBook.apk
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Gradle Wrapper
+        working-directory: android
+        run: |
+          gradle wrapper --gradle-version 8.11.1
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Rename APK
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk ReBook.apk
+          ls -lh ReBook.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReBook-Android
+          path: ReBook.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish APK to GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: ReBook.apk
           allowUpdates: true
           generateReleaseNotes: false
           token: ${{ secrets.GITHUB_TOKEN }}
