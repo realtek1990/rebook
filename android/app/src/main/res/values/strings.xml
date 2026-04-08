@@ -23,6 +23,8 @@
     <string name="converting_btn">Converting…</string>
     <string name="share_btn">Share</string>
     <string name="open_btn">Open</string>
+    <string name="save_btn">Save to file</string>
+    <string name="saved_btn">Saved ✓</string>
 
     <!-- Results -->
     <string name="conversion_done">Conversion complete!</string>

@@ -23,6 +23,8 @@
     <string name="converting_btn">Konwersja…</string>
     <string name="share_btn">Udostępnij</string>
     <string name="open_btn">Otwórz</string>
+    <string name="save_btn">Zapisz do pliku</string>
+    <string name="saved_btn">Zapisano ✓</string>
 
     <!-- Results -->
     <string name="conversion_done">Konwersja zakończona!</string>

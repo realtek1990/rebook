@@ -2,6 +2,7 @@ package com.rebook.app.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -60,6 +61,25 @@ fun HomeScreen(
                 val name = if (nameIdx >= 0) c.getString(nameIdx) else "file"
                 val size = if (sizeIdx >= 0) c.getLong(sizeIdx) else 0L
                 viewModel.setFile(it, name, size)
+            }
+        }
+    }
+
+    // SAF save launcher
+    val saveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { destUri: Uri? ->
+        destUri?.let { uri ->
+            state.outputPath?.let { path ->
+                try {
+                    val srcFile = File(path)
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        srcFile.inputStream().use { inp -> inp.copyTo(out) }
+                    }
+                    Toast.makeText(context, context.getString(R.string.saved_btn), Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -170,6 +190,10 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = state.translateImages, onCheckedChange = { viewModel.setTranslateImages(it) })
+                        Text(stringResource(R.string.translate_images_check), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = state.verify, onCheckedChange = { viewModel.setVerify(it) })
                         Text(stringResource(R.string.verify_check), style = MaterialTheme.typography.bodySmall)
                     }
@@ -254,30 +278,59 @@ fun HomeScreen(
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
+                        Spacer(Modifier.height(4.dp))
+                        state.outputPath?.let { path ->
+                            Text(
+                                File(path).name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Save to file
+                            FilledTonalButton(onClick = {
+                                state.outputPath?.let { path ->
+                                    val file = File(path)
+                                    saveLauncher.launch(file.name)
+                                }
+                            }) {
+                                Icon(Icons.Default.Save, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(stringResource(R.string.save_btn))
+                            }
+                            // Share
                             FilledTonalButton(onClick = {
                                 state.outputPath?.let { path ->
                                     val file = File(path)
                                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                                     val intent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/epub+zip"
+                                        type = when (file.extension) {
+                                            "epub" -> "application/epub+zip"
+                                            "html" -> "text/html"
+                                            else -> "text/markdown"
+                                        }
                                         putExtra(Intent.EXTRA_STREAM, uri)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
-                                    context.startActivity(Intent.createChooser(intent, "Share EPUB"))
+                                    context.startActivity(Intent.createChooser(intent, "Share"))
                                 }
                             }) {
                                 Icon(Icons.Default.Share, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(stringResource(R.string.share_btn))
                             }
+                            // Open
                             FilledTonalButton(onClick = {
                                 state.outputPath?.let { path ->
                                     val file = File(path)
                                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                                     val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, "application/epub+zip")
+                                        setDataAndType(uri, when (file.extension) {
+                                            "epub" -> "application/epub+zip"
+                                            "html" -> "text/html"
+                                            else -> "text/plain"
+                                        })
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     context.startActivity(intent)

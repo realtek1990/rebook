@@ -17,6 +17,7 @@ data class ConversionState(
     val outputFormat: Converter.OutputFormat = Converter.OutputFormat.EPUB,
     val useAi: Boolean = true,
     val translate: Boolean = false,
+    val translateImages: Boolean = false,
     val langFrom: String = "",
     val langTo: String = "polski",
     val verify: Boolean = false,
@@ -66,6 +67,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     fun setOutputFormat(format: Converter.OutputFormat) { _state.update { it.copy(outputFormat = format) } }
     fun setUseAi(v: Boolean) { _state.update { it.copy(useAi = v) } }
     fun setTranslate(v: Boolean) { _state.update { it.copy(translate = v) } }
+    fun setTranslateImages(v: Boolean) { _state.update { it.copy(translateImages = v) } }
     fun setLangFrom(v: String) { _state.update { it.copy(langFrom = v) } }
     fun setLangTo(v: String) { _state.update { it.copy(langTo = v) } }
     fun setVerify(v: Boolean) { _state.update { it.copy(verify = v) } }

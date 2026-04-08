@@ -1091,6 +1091,8 @@ string options_header
 string range_end
 string range_start
 string remove_btn
+string save_btn
+string saved_btn
 string search_menu_title
 string selected
 string settings_api_key
