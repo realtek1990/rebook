@@ -6,6 +6,7 @@ import okhttp3.*
 import okio.ByteString
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -43,10 +44,28 @@ class TtsEngine {
             "fr-FR-HenriNeural"  to "Bonjour! Je suis Henri, votre narrateur.",
         )
 
-        // Edge TTS WebSocket endpoint (same as Python edge-tts library)
-        private const val WSS_URL =
-            "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
-            "?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId="
+        private const val TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
+        private const val WIN_EPOCH = 11_644_473_600L  // seconds from 1601 to 1970
+        private const val CHROMIUM_VERSION = "143"
+        private const val SEC_MS_GEC_VERSION = "1-143.0.3650.75"
+        private const val BASE_WSS_URL =
+            "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1"
+
+        /**
+         * Sec-MS-GEC token — required by Microsoft Edge TTS since ~2024.
+         * Algorithm: round unix time to nearest 5 min, add WIN_EPOCH offset,
+         * convert to 100ns Windows file time ticks, then SHA256(ticks+token).uppercase()
+         */
+        fun generateSecMsGec(): String {
+            val unixSec = System.currentTimeMillis() / 1000.0
+            var ticks = unixSec + WIN_EPOCH
+            ticks -= ticks % 300
+            ticks *= 1e9 / 100
+            val input = "${ticks.toLong()}$TRUSTED_CLIENT_TOKEN"
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(input.toByteArray(Charsets.US_ASCII))
+            return digest.joinToString("") { "%02x".format(it) }.uppercase()
+        }
 
         private const val MIN_CHAPTER_WORDS = 400
         private const val FALLBACK_WORDS_PER_CHUNK = 5000
@@ -78,7 +97,12 @@ class TtsEngine {
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val connId = UUID.randomUUID().toString().replace("-", "")
-            val url = WSS_URL + connId
+            val secGec = generateSecMsGec()
+            val url = "$BASE_WSS_URL" +
+                "?TrustedClientToken=$TRUSTED_CLIENT_TOKEN" +
+                "&Sec-MS-GEC=$secGec" +
+                "&Sec-MS-GEC-Version=$SEC_MS_GEC_VERSION" +
+                "&ConnectionId=$connId"
 
             suspendCancellableCoroutine { cont ->
                 val audioBuffer = mutableListOf<ByteArray>()
@@ -87,7 +111,12 @@ class TtsEngine {
                 val request = Request.Builder()
                     .url(url)
                     .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
-                    .header("User-Agent", "Mozilla/5.0")
+                    .header("User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/$CHROMIUM_VERSION.0.0.0 Safari/537.36 " +
+                        "Edg/$CHROMIUM_VERSION.0.0.0")
+                    .header("Pragma", "no-cache")
+                    .header("Cache-Control", "no-cache")
                     .build()
 
                 val listener = object : WebSocketListener() {
