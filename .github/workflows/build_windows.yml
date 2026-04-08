@@ -147,24 +147,25 @@ jobs:
           pip install ebooklib markdown beautifulsoup4 markdownify Pillow PyMuPDF
           pip install customtkinter litellm || true
 
-      - name: Build ReBook.dmg (with installer + signing)
+      - name: Build ReBook.dmg + ReBook.pkg
         run: |
           chmod +x build_dmg.sh
           ./build_dmg.sh
-          ls -lh ReBook.dmg
+          ls -lh ReBook.dmg ReBook.pkg
 
-      - name: Publish macOS DMG to GitHub Release
+      - name: Publish macOS builds to GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: ReBook.dmg
+          artifacts: ReBook.dmg,ReBook.pkg
           allowUpdates: true
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            ## ReBook v3.0.0
+            ## ReBook
 
             ### 🍎 macOS
-            Pobierz `ReBook.dmg`, zamontuj i przeciągnij **ReBook.app** do folderu Aplikacje.
+            **Zalecane:** Pobierz `ReBook.pkg` i uruchom instalatora — aplikacja zainstaluje się automatycznie bez blokad Gatekeeper.
+            Alternatywnie: pobierz `ReBook.dmg`, zamontuj i przeciągnij do Aplikacji (wymagana jednorazowa zgoda w Ustawieniach systemowych).
 
             ### 🪟 Windows
             Pobierz `ReBook-Windows-Installer.exe` i uruchom.
@@ -173,11 +174,10 @@ jobs:
             Pobierz `ReBook-Linux`, nadaj uprawnienia (`chmod +x`) i uruchom.
 
             ### 🤖 Android
-            Pobierz `ReBook.apk`, włącz "Instalacja z nieznanych źródeł" i zainstaluj.
+            Pobierz `ReBook.apk`, włącz „Instalacja z nieznanych źródeł” i zainstaluj.
 
             > Wymagane: klucz API (Gemini, OpenAI, Mistral lub inny) — skonfiguruj w Ustawieniach ⚙️
 
-            ### Co nowego w v3.0.0
             - 🤖 Wersja Android (Kotlin + Jetpack Compose + ML Kit OCR)
             - 🐧 Wersja Linux (Ubuntu/Debian/Fedora)
             - 🎨 Wybór języka z listy (27 języków)

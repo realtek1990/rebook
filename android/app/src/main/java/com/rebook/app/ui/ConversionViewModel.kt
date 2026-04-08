@@ -41,6 +41,9 @@ data class ConversionState(
     val audiobookOutputDir: String? = null,
     val audiobookError: String? = null,
     val isSamplePlaying: Boolean = false,
+    // Directly-picked EPUB for audiobook (independent of conversion output)
+    val audiobookEpubUri: Uri? = null,
+    val audiobookEpubName: String = "",
 )
 
 class ConversionViewModel(application: Application) : AndroidViewModel(application) {
@@ -179,6 +182,18 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         _state.update { it.copy(ttsVoice = voice) }
     }
 
+    fun setAudiobookEpub(uri: Uri, name: String) {
+        _state.update {
+            it.copy(
+                audiobookEpubUri = uri,
+                audiobookEpubName = name,
+                audiobookProgress = "",
+                audiobookError = null,
+                audiobookOutputDir = null,
+            )
+        }
+    }
+
     fun playSample() {
         if (_state.value.isSamplePlaying) return
         _state.update { it.copy(isSamplePlaying = true) }
@@ -206,8 +221,18 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun startAudiobook() {
-        val epubPath = _state.value.outputPath?.takeIf { it.endsWith(".epub") } ?: return
         if (_state.value.isGeneratingAudiobook) return
+
+        // Priority: 1) explicitly picked EPUB, 2) conversion output, 3) loaded input EPUB
+        val explicitUri = _state.value.audiobookEpubUri
+        val epubPath: String? = if (explicitUri == null)
+            _state.value.outputPath?.takeIf { it.endsWith(".epub") } else null
+        val epubUri: Uri? = explicitUri
+            ?: if (epubPath == null &&
+                _state.value.selectedFileName.endsWith(".epub", ignoreCase = true))
+                _state.value.selectedFileUri else null
+
+        if (epubPath == null && epubUri == null) return
 
         _state.update {
             it.copy(
@@ -220,8 +245,25 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
 
         viewModelScope.launch {
             try {
-                val epubFile = File(epubPath)
-                val outDir = File(epubFile.parent ?: "", "${epubFile.nameWithoutExtension}_audiobook")
+                // Resolve EPUB to a File — either direct path or copy from URI
+                val epubFile: File = if (epubPath != null) {
+                    File(epubPath)
+                } else {
+                    // Copy URI content to a temp file so ZipFile can read it
+                    val tmp = File(getApplication<android.app.Application>().cacheDir,
+                        _state.value.selectedFileName.ifBlank { "input.epub" })
+                    getApplication<android.app.Application>().contentResolver
+                        .openInputStream(epubUri!!)?.use { ins ->
+                            tmp.outputStream().use { ins.copyTo(it) }
+                        }
+                    tmp
+                }
+
+                val outDir = File(
+                    getApplication<android.app.Application>().getExternalFilesDir(null)
+                        ?: epubFile.parentFile ?: getApplication<android.app.Application>().cacheDir,
+                    "${epubFile.nameWithoutExtension}_audiobook"
+                )
 
                 // Extract text from EPUB
                 val text = extractEpubText(epubFile)
@@ -230,7 +272,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     text = text,
                     voice = _state.value.ttsVoice,
                     outputDir = outDir,
-                ) { cur, total, msg ->
+                ) { _, _, msg ->
                     _state.update { it.copy(audiobookProgress = msg) }
                 }
 

@@ -1,75 +1,99 @@
 #!/bin/bash
-# ── ReBook DMG Builder ────────────────────────────────────────────────────────
-# Creates a distributable ReBook.dmg with the app, /Applications symlink,
-# and an installer script that handles Gatekeeper quarantine automatically.
+# ── ReBook macOS Packager ─────────────────────────────────────────────────────
+# Produces BOTH:
+#   ReBook.dmg  — drag-and-drop with README
+#   ReBook.pkg  — macOS Installer (automatic quarantine removal via postinstall)
 # Usage: ./build_dmg.sh
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="ReBook"
 DMG_NAME="${APP_NAME}.dmg"
+PKG_NAME="${APP_NAME}.pkg"
 STAGING="${SCRIPT_DIR}/.dmg_staging"
+PKG_STAGING="${SCRIPT_DIR}/.pkg_staging"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Sign the app bundle (ad-hoc, hardened runtime)
+# ─────────────────────────────────────────────────────────────────────────────
+echo "🔏 Signing ${APP_NAME}.app (ad-hoc)..."
+find "${SCRIPT_DIR}/${APP_NAME}.app" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+xattr -cr "${SCRIPT_DIR}/${APP_NAME}.app" 2>/dev/null || true
+codesign --force --deep --sign - --options runtime "${SCRIPT_DIR}/${APP_NAME}.app"
+codesign --verify --deep "${SCRIPT_DIR}/${APP_NAME}.app"
+echo "   Signature OK"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Build DMG (drag-and-drop with README)
+# ─────────────────────────────────────────────────────────────────────────────
+echo ""
 echo "📦 Building ${DMG_NAME}..."
-
-# Clean
 rm -rf "${STAGING}" "${SCRIPT_DIR}/${DMG_NAME}"
 mkdir -p "${STAGING}"
-
-# Copy app + Applications symlink
 cp -R "${SCRIPT_DIR}/${APP_NAME}.app" "${STAGING}/"
 ln -sf /Applications "${STAGING}/Applications"
 
-# Remove __pycache__ — .pyc files change on every run and invalidate codesign
-echo "🧹 Cleaning __pycache__..."
-find "${STAGING}/${APP_NAME}.app" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+cat > "${STAGING}/PRZECZYTAJ PRZED URUCHOMIENIEM.txt" << 'README_EOF'
+╔══════════════════════════════════════════════════════════╗
+║          PIERWSZE URUCHOMIENIE — WAŻNE                   ║
+╚══════════════════════════════════════════════════════════╝
 
-# Strip quarantine from within the bundle (belt-and-suspenders)
-xattr -cr "${STAGING}/${APP_NAME}.app" 2>/dev/null || true
+ZALECANE: Użyj zamiast tego pliku ReBook.pkg — instaluje
+          się jednym klikiem i pomija blokadę Apple.
 
-# Sign the app bundle (adhoc) — required for macOS to allow launch
-echo "🔏 Signing ${APP_NAME}.app..."
-codesign --force --deep --sign - --options runtime "${STAGING}/${APP_NAME}.app"
-codesign --verify --deep "${STAGING}/${APP_NAME}.app"
-echo "   Signature OK"
+Jeśli jednak chcesz zainstalować ręcznie z DMG:
+1. Przeciągnij ReBook.app do folderu Applications.
+2. Otwórz: Ustawienia systemowe → Prywatność i bezpieczeństwo
+3. Kliknij "Otwórz mimo to" i potwierdź hasłem.
 
-# ── Create the Gatekeeper-bypass installer script ────────────────────────────
-# Users right-click this .command file → Open (only once on first run),
-# then it strips quarantine and installs the app silently.
-INSTALLER="${STAGING}/Zainstaluj ReBook.command"
-cat > "${INSTALLER}" << 'INSTALLER_EOF'
-#!/bin/bash
-# ReBook Installer — usuwa blokadę Gatekeeper i instaluje aplikację
-DMG_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_SRC="${DMG_DIR}/ReBook.app"
-APP_DST="/Applications/ReBook.app"
+Szybka metoda przez Terminal:
+  xattr -dr com.apple.quarantine /Applications/ReBook.app
 
-echo "🧹 Usuwam blokadę bezpieczeństwa Apple..."
-xattr -cr "${APP_SRC}" 2>/dev/null || true
+Pytania: github.com/realtek1990/rebook
+README_EOF
 
-echo "💾 Kopiuję ReBook.app do folderu Aplikacje..."
-rm -rf "${APP_DST}"
-cp -R "${APP_SRC}" "${APP_DST}"
-
-echo "✅ Gotowe! Uruchamiam ReBook..."
-open "${APP_DST}"
-INSTALLER_EOF
-
-chmod +x "${INSTALLER}"
-echo "   Installer script created"
-
-# Build compressed DMG
 hdiutil create \
     -volname "${APP_NAME}" \
     -srcfolder "${STAGING}" \
-    -ov \
-    -format UDZO \
+    -ov -format UDZO \
     "${SCRIPT_DIR}/${DMG_NAME}"
-
-# Clean staging
 rm -rf "${STAGING}"
+echo "✅ ${DMG_NAME} OK ($(du -h "${SCRIPT_DIR}/${DMG_NAME}" | cut -f1))"
 
-SIZE=$(du -h "${SCRIPT_DIR}/${DMG_NAME}" | cut -f1)
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Build PKG (standard macOS Installer — auto-strips quarantine)
+# ─────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "✅ ${DMG_NAME} created (${SIZE})"
-echo "   → ${SCRIPT_DIR}/${DMG_NAME}"
+echo "📦 Building ${PKG_NAME}..."
+rm -rf "${PKG_STAGING}" "${SCRIPT_DIR}/${PKG_NAME}"
+
+# Payload: app goes to /Applications
+APP_ROOT="${PKG_STAGING}/root/Applications"
+mkdir -p "${APP_ROOT}"
+cp -R "${SCRIPT_DIR}/${APP_NAME}.app" "${APP_ROOT}/"
+
+# postinstall script — strips quarantine AFTER the Installer copies the app
+SCRIPTS_DIR="${PKG_STAGING}/scripts"
+mkdir -p "${SCRIPTS_DIR}"
+cat > "${SCRIPTS_DIR}/postinstall" << 'POSTINSTALL_EOF'
+#!/bin/bash
+# Remove Gatekeeper quarantine attribute so the app opens without any warnings
+xattr -dr com.apple.quarantine /Applications/ReBook.app 2>/dev/null || true
+exit 0
+POSTINSTALL_EOF
+chmod +x "${SCRIPTS_DIR}/postinstall"
+
+# Build flat package
+pkgbuild \
+    --root "${APP_ROOT}" \
+    --scripts "${SCRIPTS_DIR}" \
+    --identifier "com.rebook.app" \
+    --version "1.0" \
+    --install-location "/Applications" \
+    "${SCRIPT_DIR}/${PKG_NAME}"
+
+rm -rf "${PKG_STAGING}"
+echo "✅ ${PKG_NAME} OK ($(du -h "${SCRIPT_DIR}/${PKG_NAME}" | cut -f1))"
+echo ""
+echo "Distribution files:"
+ls -lh "${SCRIPT_DIR}/${DMG_NAME}" "${SCRIPT_DIR}/${PKG_NAME}"

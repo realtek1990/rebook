@@ -346,23 +346,82 @@ fun HomeScreen(
                 }
             }
 
-            // ── Audiobook TTS panel (EPUB only) ────────────────────────────────────
-            AnimatedVisibility(
-                visible = state.outputPath?.endsWith(".epub") == true
+            // ── Audiobook TTS panel — always available ─────────────────────────────
+            val audiobookEpubReady = state.outputPath?.endsWith(".epub") == true
+                    || state.selectedFileName.endsWith(".epub", ignoreCase = true)
+                    || state.audiobookEpubUri != null
+
+            val epubPickerForAudiobook = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri: Uri? ->
+                uri?.let {
+                    context.contentResolver.takePersistableUriPermission(
+                        it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    val cursor = context.contentResolver.query(it, null, null, null, null)
+                    val name = cursor?.use { c ->
+                        c.moveToFirst()
+                        val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) c.getString(idx) else "plik.epub"
+                    } ?: "plik.epub"
+                    viewModel.setAudiobookEpub(it, name)
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ),
             ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    ),
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(
-                            "🎧 Audiobook",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        Spacer(Modifier.height(8.dp))
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "🎧 Audiobook",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    // EPUB source indicator + picker
+                    val epubLabel = when {
+                        state.audiobookEpubUri != null -> state.audiobookEpubName
+                        state.outputPath?.endsWith(".epub") == true ->
+                            File(state.outputPath).name
+                        state.selectedFileName.endsWith(".epub", ignoreCase = true) ->
+                            state.selectedFileName
+                        else -> null
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (epubLabel != null) {
+                            Text(
+                                "📖 $epubLabel",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                            )
+                        } else {
+                            Text(
+                                "Brak pliku EPUB",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.5f),
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { epubPickerForAudiobook.launch(arrayOf("application/epub+zip")) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.FolderOpen, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Wybierz EPUB", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
 
                         // Voice selector
                         val voiceKeys = TtsEngine.VOICES.keys.toList()
@@ -477,7 +536,6 @@ fun HomeScreen(
                         }
                     }
                 }
-            }
 
             // ── Error ──
             AnimatedVisibility(visible = state.error != null) {
