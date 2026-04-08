@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>Translate and convert e-books with state-of-the-art AI</strong><br>
-  Translation • Correction • OCR • macOS • Windows • Linux • Android • 27 Languages
+  Translation • Correction • OCR • macOS • Windows • Linux • BSD • Android • 27 Languages
 </p>
 
 ---
@@ -70,6 +70,26 @@
 
 > 💡 Uses **Google ML Kit** for on-device PDF OCR — works offline, no additional downloads, supports 100+ languages.
 
+### 👾 BSD (FreeBSD / OpenBSD / NetBSD)
+
+1. Install Python 3 and Tk:
+```bash
+# FreeBSD
+pkg install python3 py39-tkinter
+# OpenBSD
+pkg_add python3 py3-tkinter
+# NetBSD
+pkgin install python39 py39-tkinter
+```
+2. Clone the repo and run:
+```bash
+git clone https://github.com/realtek1990/rebook.git
+cd rebook/bsd
+python3 rebook_bsd.py
+```
+
+> 💡 BSD port uses `sysctl hw.physmem` for RAM detection. All other features are identical to Linux.
+
 ### Installation Options (desktop, first launch)
 
 | Option | Size | Capabilities |
@@ -86,6 +106,7 @@
 | 🍎 macOS | 11.0+ (Big Sur+), Apple Silicon or Intel, Python 3.9+ |
 | 🪟 Windows | 10/11, 64-bit, no additional dependencies |
 | 🐧 Linux | Ubuntu 20.04+ / Fedora 36+ / Arch, python3-tk |
+| 👾 BSD | FreeBSD 13+ / OpenBSD 7+ / NetBSD, python3-tk |
 | 🤖 Android | 8.0+ (API 26+), ~60 MB, ML Kit OCR (built-in) |
 | 🔑 All | API key from any supported AI provider |
 
@@ -134,6 +155,9 @@ rebook/
 ├── linux/
 │   ├── rebook_linux.py           # Linux GUI (CustomTkinter)
 │   └── dist/                     # Build artifacts
+├── bsd/
+│   ├── rebook_bsd.py             # BSD GUI (sysctl RAM, POSIX paths)
+│   └── dist/                     # Backend (corrector, converter, i18n)
 ├── android/                       # 🤖 Native Android app
 │   ├── app/src/main/java/com/rebook/app/
 │   │   ├── domain/               # Converter, Corrector, OcrEngine, EpubWriter
@@ -144,7 +168,7 @@ rebook/
 ├── assets/
 │   └── icon.ico                  # Multi-resolution app icon
 ├── .github/workflows/
-│   └── build_windows.yml         # CI: builds all 4 platforms
+│   └── build_windows.yml         # CI: builds all 5 platforms
 ├── build_dmg.sh                  # macOS DMG builder
 ├── sync_backend.sh               # Sync backend across platforms
 └── README.md

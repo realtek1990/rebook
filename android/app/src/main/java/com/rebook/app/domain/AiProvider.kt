@@ -31,13 +31,22 @@ object AiProvider {
     )
 
     val PROVIDERS = listOf(
-        ProviderInfo("Google Gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta/openai/", listOf("gemini-2.5-flash", "gemini-2.5-pro")),
-        ProviderInfo("OpenAI", "openai", "https://api.openai.com/v1/", listOf("gpt-4o", "gpt-4o-mini", "o3-mini")),
-        ProviderInfo("Anthropic", "anthropic", "https://api.anthropic.com/v1/", listOf("claude-3-7-sonnet-latest")),
-        ProviderInfo("Mistral AI", "mistral", "https://api.mistral.ai/v1/", listOf("mistral-large-latest")),
-        ProviderInfo("Groq", "groq", "https://api.groq.com/openai/v1/", listOf("llama-3.3-70b-versatile")),
-        ProviderInfo("ZhipuAI", "zhipuai", "https://open.bigmodel.cn/api/coding/paas/v4/", listOf("glm-4-flash", "glm-4-plus")),
-        ProviderInfo("Kimi / Moonshot", "moonshot", "https://api.moonshot.cn/v1/", listOf("moonshot-v1-auto")),
+        ProviderInfo("Google Gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta/openai/",
+            listOf("gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro")),
+        ProviderInfo("OpenAI", "openai", "https://api.openai.com/v1/",
+            listOf("gpt-5-preview", "gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "o1-mini")),
+        ProviderInfo("Anthropic", "anthropic", "https://api.anthropic.com/v1/",
+            listOf("claude-4.6-opus", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest")),
+        ProviderInfo("Mistral AI", "mistral", "https://api.mistral.ai/v1/",
+            listOf("mistral-large-latest", "mistral-medium", "pixtral-large-latest", "ministral-8b-latest", "mistral-small-latest")),
+        ProviderInfo("Groq", "groq", "https://api.groq.com/openai/v1/",
+            listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768")),
+        ProviderInfo("Zhipu AI", "zhipu", "https://open.bigmodel.cn/api/paas/v4/",
+            listOf("glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash")),
+        ProviderInfo("GLM / ZhipuAI", "zhipuai", "https://open.bigmodel.cn/api/coding/paas/v4/",
+            listOf("glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash")),
+        ProviderInfo("Kimi / Moonshot", "moonshot", "https://api.moonshot.cn/v1/",
+            listOf("moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k")),
     )
 
     fun findProvider(key: String): ProviderInfo? = PROVIDERS.find { it.key == key }
