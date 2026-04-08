@@ -17,8 +17,12 @@ object AiProvider {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        // Allow up to MAX_PARALLEL simultaneous connections to the same AI host.
+        // Default OkHttp limit is 5/host which serializes parallel coroutines.
+        .connectionPool(okhttp3.ConnectionPool(20, 5, TimeUnit.MINUTES))
+        .dispatcher(okhttp3.Dispatcher().also { it.maxRequestsPerHost = 20; it.maxRequests = 40 })
         .build()
 
     private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()

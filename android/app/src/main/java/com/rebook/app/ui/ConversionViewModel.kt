@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.rebook.app.ConversionService
 import com.rebook.app.data.AppConfig
 import com.rebook.app.data.AppConfigStore
 import com.rebook.app.domain.Converter
@@ -92,6 +93,10 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
 
+        // Start foreground service so Android won't kill us when backgrounded
+        val fileName = _state.value.selectedFileName.ifBlank { "dokument" }
+        ConversionService.start(getApplication(), "ReBook — $fileName")
+
         viewModelScope.launch {
             try {
                 val params = Converter.ConversionParams(
@@ -121,6 +126,8 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                             logMessages = it.logMessages + msg,
                         )
                     }
+                    // Keep notification in sync with progress
+                    ConversionService.updateProgress(getApplication(), (totalPct * 100).toInt(), msg)
                 }
 
                 _state.update {
@@ -143,6 +150,9 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                         progressMessage = "❌ Błąd: ${e.message}",
                     )
                 }
+            } finally {
+                // Always stop foreground service when conversion ends
+                ConversionService.stop(getApplication())
             }
         }
     }
