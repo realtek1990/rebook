@@ -717,7 +717,13 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
         progress_callback(total_chunks, total_chunks, "🧹 Deduplikacja i czyszczenie końcowe...")
     
     final_text = _deduplicate_markdown(final_text)
-    final_text = _deep_translate_clusters(final_text, verify_prompt, model_name, api_key, api_base, progress_callback)
+
+    # Use a proper translation prompt (NOT the verify_prompt) for retranslation
+    retranslate_prompt = f"""Jesteś profesjonalnym tłumaczem. Przetłumacz poniższy tekst na język {lang_to}.
+Zachowaj formatowanie Markdown. NIE zostawiaj niczego w języku {lang_from or 'źródłowym'}.
+Zwróć TYLKO przetłumaczony tekst."""
+
+    final_text = _deep_translate_clusters(final_text, retranslate_prompt, model_name, api_key, api_base, progress_callback)
 
     return final_text
 
