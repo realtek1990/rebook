@@ -164,9 +164,11 @@ jobs:
             ## ReBook
 
             ### 🍎 macOS
-            Pobierz `ReBook.dmg`, zamontuj i kliknij dwukrotnie **„Instaluj ReBook.command"** — app zainstaluje się i uruchomi automatycznie (bez blokad Gatekeeper).
-            Jeśli `.command` nie uruchamia się: kliknij prawym → Otwórz → Potwierdź.
-            Alternatywnie: pobierz `ReBook.pkg` (standardowy instalator macOS).
+            Pobierz `ReBook.dmg`, zamontuj, następnie otwórz Terminal i wklej:
+            ```
+            xattr -dr com.apple.quarantine /Volumes/ReBook/* && cp -R /Volumes/ReBook/ReBook.app /Applications/ && xattr -dr com.apple.quarantine /Applications/ReBook.app && open /Applications/ReBook.app
+            ```
+            (Jedna komenda — kopiuje, wyłącza blokadę Gatekeeper i uruchamia).
 
             ### 🪟 Windows
             Pobierz `ReBook-Windows-Installer.exe` i uruchom.
