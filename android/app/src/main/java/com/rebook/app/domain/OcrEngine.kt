@@ -59,12 +59,33 @@ object OcrEngine {
             val inputImage = InputImage.fromBitmap(bitmap, 0)
             val visionText = Tasks.await(recognizer.process(inputImage))
 
-            // Collect text blocks with proper ordering
-            val pageText = visionText.textBlocks.joinToString("\n\n") { block ->
-                block.lines.joinToString("\n") { line -> line.text }
+            // Build structured text from blocks
+            val pageLines = StringBuilder()
+            for (block in visionText.textBlocks) {
+                val blockText = block.lines.joinToString(" ") { line -> line.text }.trim()
+                if (blockText.isBlank()) continue
+
+                // Heuristic: short standalone blocks (< 80 chars, no period at end) 
+                // are likely headings or titles
+                val isLikelyHeading = blockText.length < 80
+                    && !blockText.endsWith(".")
+                    && !blockText.endsWith(",")
+                    && !blockText.endsWith(":")
+                    && block.lines.size <= 2
+                    && blockText.first().isUpperCase()
+
+                if (isLikelyHeading) {
+                    pageLines.appendLine()
+                    pageLines.appendLine("## $blockText")
+                    pageLines.appendLine()
+                } else {
+                    // Regular paragraph — join lines with spaces (ML Kit splits on visual lines)
+                    pageLines.appendLine(blockText)
+                    pageLines.appendLine()
+                }
             }
 
-            pages.add(pageText)
+            pages.add(pageLines.toString().trim())
             bitmap.recycle() // Free memory immediately
 
             val pct = ((i + 1) * 100) / pageCount

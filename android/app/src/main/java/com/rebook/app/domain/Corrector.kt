@@ -154,4 +154,82 @@ Zasady:
         jobs.awaitAll()
         results.joinToString("\n\n")
     }
+
+    /**
+     * Verify translation quality by comparing original + translated chunks.
+     * Sends both to AI for quality check and re-translation of errors.
+     * Port of verify_translation() from corrector.py.
+     */
+    suspend fun verifyTranslation(
+        original: String,
+        translated: String,
+        config: AppConfig,
+        langFrom: String = "",
+        langTo: String = "polski",
+        onProgress: suspend (Int, String) -> Unit = { _, _ -> },
+    ): String = coroutineScope {
+        if (config.apiKey.isBlank()) return@coroutineScope translated
+
+        val origChunks = chunkText(original)
+        val transChunks = chunkText(translated)
+
+        // Align chunks — use min of both sizes
+        val count = minOf(origChunks.size, transChunks.size)
+        if (count == 0) return@coroutineScope translated
+
+        val to = langTo.ifBlank { "polski" }
+        val frm = if (langFrom.isNotBlank()) langFrom else "język źródłowy"
+
+        val verifyPrompt = """Jesteś ekspertem weryfikacji tłumaczeń. Otrzymujesz ORYGINAŁ i TŁUMACZENIE tekstu z $frm na $to.
+
+Zasady:
+1. Sprawdź czy tłumaczenie jest KOMPLETNE — żadne akapity/zdania nie zostały pominięte.
+2. Sprawdź czy sens oryginału jest wiernie oddany.
+3. Popraw nienaturalne, sztywne sformułowania na płynny, idiomatyczny język $to.
+4. NIE dodawaj niczego od siebie. NIE komentuj. Zwróć TYLKO poprawione tłumaczenie.
+5. Jeśli tłumaczenie jest poprawne — zwróć je bez zmian.
+6. Zachowaj formatowanie Markdown (nagłówki #, listy -, pogrubienia **, cytaty >)."""
+
+        val results = Array(count) { "" }
+        val semaphore = kotlinx.coroutines.sync.Semaphore(MAX_PARALLEL)
+        var completed = 0
+
+        val jobs = (0 until count).map { index ->
+            async {
+                semaphore.acquire()
+                try {
+                    val userMsg = "=== ORYGINAŁ ===\n${origChunks[index]}\n\n=== TŁUMACZENIE ===\n${transChunks[index]}"
+                    var result = transChunks[index]
+                    for (attempt in 1..MAX_RETRIES) {
+                        try {
+                            result = AiProvider.complete(
+                                systemPrompt = verifyPrompt,
+                                userText = userMsg,
+                                config = config,
+                            )
+                            break
+                        } catch (e: Exception) {
+                            if (attempt < MAX_RETRIES) delay(1000L * attempt)
+                        }
+                    }
+                    results[index] = result
+                    completed++
+                    val pct = (completed * 100) / count
+                    onProgress(pct, "🔍 Weryfikacja: $completed/$count")
+                } finally {
+                    semaphore.release()
+                }
+            }
+        }
+
+        jobs.awaitAll()
+
+        // Append any remaining translated chunks that weren't verified
+        val remaining = if (transChunks.size > count) {
+            transChunks.drop(count).joinToString("\n\n")
+        } else ""
+
+        val verifiedPart = results.joinToString("\n\n")
+        if (remaining.isNotBlank()) "$verifiedPart\n\n$remaining" else verifiedPart
+    }
 }

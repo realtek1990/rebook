@@ -153,8 +153,9 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun mapStageProgress(stage: String, pct: Int): Float {
         val (lo, hi) = when (stage) {
-            "ocr" -> 0f to 0.35f
-            "correction" -> 0.35f to 0.85f
+            "ocr" -> 0f to 0.30f
+            "correction" -> 0.30f to 0.60f
+            "verification" -> 0.60f to 0.85f
             "export" -> 0.85f to 1f
             "done" -> 1f to 1f
             else -> 0f to 1f

@@ -84,6 +84,22 @@ object Converter {
             rawText
         }
 
+        // ── Step 3.5: Verification Pass (opt-in) ──
+        val verifiedText: String = if (params.verify && params.translate) {
+            onProgress("verification", 0, "🔍 Weryfikacja tłumaczenia...")
+            Corrector.verifyTranslation(
+                original = rawText,
+                translated = correctedText,
+                config = config,
+                langFrom = params.langFrom,
+                langTo = params.langTo,
+            ) { pct, msg ->
+                onProgress("verification", pct, msg)
+            }
+        } else {
+            correctedText
+        }
+
         // ── Step 4: Export ──
         onProgress("export", 0, "Eksport ${params.outputFormat.name}...")
 
@@ -104,10 +120,10 @@ object Converter {
 
         when (params.outputFormat) {
             OutputFormat.EPUB -> {
-                EpubWriter.write(correctedText, bookTitle, langCode, outputFile)
+                EpubWriter.write(verifiedText, bookTitle, langCode, outputFile)
             }
             OutputFormat.MARKDOWN -> {
-                outputFile.writeText(correctedText)
+                outputFile.writeText(verifiedText)
             }
             OutputFormat.HTML -> {
                 val html = """<!DOCTYPE html>
@@ -115,7 +131,7 @@ object Converter {
 <head><meta charset="utf-8"><title>${bookTitle}</title>
 <style>body{font-family:Georgia,serif;max-width:800px;margin:0 auto;padding:20px;line-height:1.6;}</style>
 </head><body>
-${markdownToBasicHtml(correctedText)}
+${markdownToBasicHtml(verifiedText)}
 </body></html>"""
                 outputFile.writeText(html)
             }
