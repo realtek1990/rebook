@@ -29,3 +29,10 @@ pdf_content.txt
 
 .venv/
 windows/dist/python-installer.exe
+
+# Android build outputs (APK, AAB, intermediates)
+android/app/build/
+android/.gradle/
+android/build/
+*.apk
+*.aab
