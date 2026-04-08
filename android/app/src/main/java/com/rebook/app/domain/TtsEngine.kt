@@ -3,14 +3,11 @@ package com.rebook.app.domain
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
 import okio.ByteString
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
@@ -300,18 +297,18 @@ class TtsEngine {
             // Chunk long chapters at sentence boundary (Edge TTS limit ~4500 chars)
             val chunks = chunkBySentence(clean, 4000)
             if (chunks.size == 1) {
-                synthesize(clean, voice, outFile)
-                    .onSuccess { generated.add(it) }
-                    .onFailure { onProgress(i, total, "⚠️ Błąd: ${it.message}") }
+                val r = synthesize(clean, voice, outFile)
+                r.onSuccess { f -> generated.add(f) }
+                r.onFailure { e -> onProgress(i, total, "⚠️ Błąd: ${e.message}") }
             } else {
                 // Synthesize each chunk → concatenate raw MP3 bytes
                 val parts = mutableListOf<ByteArray>()
                 var chunkOk = true
                 for (chunk in chunks) {
                     val tmp = File.createTempFile("chunk_", ".mp3", outputDir)
-                    synthesize(chunk, voice, tmp)
-                        .onSuccess { parts.add(it.readBytes()); it.delete() }
-                        .onFailure { chunkOk = false; it.delete() }
+                    val r = synthesize(chunk, voice, tmp)
+                    r.onSuccess { f -> parts.add(f.readBytes()); f.delete() }
+                    r.onFailure { chunkOk = false; tmp.delete() }
                 }
                 if (chunkOk && parts.isNotEmpty()) {
                     FileOutputStream(outFile).use { fos -> parts.forEach(fos::write) }

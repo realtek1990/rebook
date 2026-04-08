@@ -153,13 +153,15 @@ jobs:
           ./build_dmg.sh
           ls -lh ReBook.dmg
 
-      - name: Ad-hoc codesign (reduce Gatekeeper friction)
+      - name: Ad-hoc codesign + strip quarantine
         run: |
-          # Sign the .app inside the repo with ad-hoc identity (-)
-          # This allows right-click → Open without full notarization
-          codesign --force --deep --sign - ReBook.app
-          echo "✅ Ad-hoc signed"
-          # Rebuild DMG with signed app
+          # 1. Deep ad-hoc sign with hardened runtime flag
+          codesign --force --deep --sign - --options runtime ReBook.app
+          codesign --verify --deep --strict ReBook.app
+          echo "✅ Ad-hoc signed (runtime hardening)"
+          # 2. Strip macOS quarantine attribute from app bundle
+          xattr -cr ReBook.app
+          # 3. Rebuild DMG with signed, quarantine-free app
           rm -f ReBook.dmg
           ./build_dmg.sh
           ls -lh ReBook.dmg
