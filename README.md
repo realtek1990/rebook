@@ -185,12 +185,19 @@ Settings are stored in:
 {
   "llm_provider": "gemini",
   "model_name": "gemini-3-flash-preview",
-  "api_key": "YOUR_API_KEY",
+  "api_key": "YOUR_GEMINI_API_KEY",
   "kindle_email": "your-kindle@kindle.com",
   "smtp_email": "your@gmail.com",
-  "smtp_pass": "app-password"
+  "smtp_pass": "app-password",
+
+  "ocr_provider": "auto",
+  "ocr_api_key": "YOUR_MISTRAL_API_KEY",
+  "ocr_model": "mistral-ocr-latest"
 }
 ```
+
+> `ocr_provider`: `"auto"` | `"mistral"` | `"gemini"` | `"marker"`  
+> `ocr_api_key`: leave empty to reuse the main `api_key`
 
 ### Install Marker OCR separately
 
@@ -205,3 +212,21 @@ Settings are stored in:
 ## 📄 License
 
 MIT License — see [LICENSE](LICENSE)
+
+---
+
+## 🔐 Code Signing Policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),  
+certificate by [SignPath Foundation](https://signpath.org).
+
+**Team roles:**
+- Committers & Approvers: [Owners](https://github.com/realtek1990/rebook)
+
+**Privacy Policy:**  
+ReBook does not transfer any information to networked systems unless explicitly requested by the user.
+
+- **API keys** entered in Settings are stored locally (`config.json` / Android DataStore) and sent only to the AI provider selected by the user (Gemini, Mistral, OpenAI, etc.).
+- **OCR keys** (Mistral OCR, Gemini) are sent only to the respective API endpoint during PDF processing.
+- **No telemetry**, no analytics, no tracking of any kind.
+- Files being converted are processed locally (Marker OCR) or sent to the cloud OCR API only if the user has configured and selected a cloud OCR provider.
