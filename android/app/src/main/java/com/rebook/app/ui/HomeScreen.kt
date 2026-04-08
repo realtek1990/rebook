@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.rebook.app.R
 import com.rebook.app.domain.Converter
+import com.rebook.app.domain.TtsEngine
 import java.io.File
 
 val LANGUAGES = listOf(
@@ -339,6 +340,139 @@ fun HomeScreen(
                                 Icon(Icons.Default.MenuBook, null, Modifier.size(18.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(stringResource(R.string.open_btn))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Audiobook TTS panel (EPUB only) ────────────────────────────────────
+            AnimatedVisibility(
+                visible = state.outputPath?.endsWith(".epub") == true
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            "🎧 Audiobook",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        // Voice selector
+                        val voiceKeys = TtsEngine.VOICES.keys.toList()
+                        val voiceLabels = TtsEngine.VOICES.values.toList()
+                        var voiceExpanded by remember { mutableStateOf(false) }
+                        val selectedLabel = TtsEngine.VOICES[state.ttsVoice] ?: voiceLabels.first()
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ExposedDropdownMenuBox(
+                                expanded = voiceExpanded,
+                                onExpandedChange = { voiceExpanded = !voiceExpanded },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                OutlinedTextField(
+                                    value = selectedLabel,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("🎙 Głos") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(voiceExpanded) },
+                                    modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = voiceExpanded,
+                                    onDismissRequest = { voiceExpanded = false }
+                                ) {
+                                    voiceKeys.forEachIndexed { i, key ->
+                                        DropdownMenuItem(
+                                            text = { Text(voiceLabels[i]) },
+                                            onClick = {
+                                                viewModel.setTtsVoice(key)
+                                                voiceExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            FilledTonalButton(
+                                onClick = { viewModel.playSample() },
+                                enabled = !state.isSamplePlaying,
+                            ) {
+                                if (state.isSamplePlaying) {
+                                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
+                                }
+                                Spacer(Modifier.width(4.dp))
+                                Text("Sample")
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        if (state.audiobookProgress.isNotBlank()) {
+                            Text(
+                                state.audiobookProgress,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        if (state.audiobookError != null) {
+                            Text(
+                                "❌ ${state.audiobookError}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { viewModel.startAudiobook() },
+                                enabled = !state.isGeneratingAudiobook,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiary
+                                )
+                            ) {
+                                if (state.isGeneratingAudiobook) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(16.dp), strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onTertiary
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(if (state.isGeneratingAudiobook) "Generuję…" else "🎧 Generuj audiobook")
+                            }
+
+                            if (state.audiobookOutputDir != null) {
+                                FilledTonalButton(onClick = {
+                                    val dir = File(state.audiobookOutputDir)
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(
+                                            android.net.Uri.fromFile(dir),
+                                            "resource/folder"
+                                        )
+                                    }
+                                    try { context.startActivity(intent) }
+                                    catch (e: Exception) {
+                                        Toast.makeText(context, dir.absolutePath, Toast.LENGTH_LONG).show()
+                                    }
+                                }) {
+                                    Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Folder")
+                                }
                             }
                         }
                     }

@@ -1,6 +1,7 @@
 package com.rebook.app.ui
 
 import android.app.Application
+import android.media.MediaPlayer
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,8 +9,10 @@ import com.rebook.app.ConversionService
 import com.rebook.app.data.AppConfig
 import com.rebook.app.data.AppConfigStore
 import com.rebook.app.domain.Converter
+import com.rebook.app.domain.TtsEngine
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class ConversionState(
     val selectedFileUri: Uri? = null,
@@ -31,6 +34,13 @@ data class ConversionState(
     val outputPath: String? = null,
     val error: String? = null,
     val config: AppConfig = AppConfig(),
+    // ── Audiobook TTS ────────────────────────────────────────────────
+    val ttsVoice: String = "pl-PL-MarekNeural",
+    val isGeneratingAudiobook: Boolean = false,
+    val audiobookProgress: String = "",
+    val audiobookOutputDir: String? = null,
+    val audiobookError: String? = null,
+    val isSamplePlaying: Boolean = false,
 )
 
 class ConversionViewModel(application: Application) : AndroidViewModel(application) {
@@ -159,6 +169,110 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun stopConversion() {
         _state.update { it.copy(isCancelled = true) }
+    }
+
+    // ── Audiobook TTS ────────────────────────────────────────────────
+
+    private val ttsEngine = TtsEngine()
+
+    fun setTtsVoice(voice: String) {
+        _state.update { it.copy(ttsVoice = voice) }
+    }
+
+    fun playSample() {
+        if (_state.value.isSamplePlaying) return
+        _state.update { it.copy(isSamplePlaying = true) }
+        viewModelScope.launch {
+            val result = ttsEngine.generateSample(_state.value.ttsVoice)
+            result.onSuccess { tmpFile ->
+                try {
+                    val player = MediaPlayer()
+                    player.setDataSource(tmpFile.absolutePath)
+                    player.prepare()
+                    player.setOnCompletionListener {
+                        it.release()
+                        tmpFile.delete()
+                        _state.update { s -> s.copy(isSamplePlaying = false) }
+                    }
+                    player.start()
+                } catch (e: Exception) {
+                    tmpFile.delete()
+                    _state.update { it.copy(isSamplePlaying = false) }
+                }
+            }.onFailure {
+                _state.update { s -> s.copy(isSamplePlaying = false, audiobookError = it.message) }
+            }
+        }
+    }
+
+    fun startAudiobook() {
+        val epubPath = _state.value.outputPath?.takeIf { it.endsWith(".epub") } ?: return
+        if (_state.value.isGeneratingAudiobook) return
+
+        _state.update {
+            it.copy(
+                isGeneratingAudiobook = true,
+                audiobookProgress = "Czytam EPUB…",
+                audiobookOutputDir = null,
+                audiobookError = null,
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val epubFile = File(epubPath)
+                val outDir = File(epubFile.parent ?: "", "${epubFile.nameWithoutExtension}_audiobook")
+
+                // Extract text from EPUB
+                val text = extractEpubText(epubFile)
+
+                val files = ttsEngine.generateAudiobook(
+                    text = text,
+                    voice = _state.value.ttsVoice,
+                    outputDir = outDir,
+                ) { cur, total, msg ->
+                    _state.update { it.copy(audiobookProgress = msg) }
+                }
+
+                _state.update {
+                    it.copy(
+                        isGeneratingAudiobook = false,
+                        audiobookOutputDir = outDir.absolutePath,
+                        audiobookProgress = "✅ Gotowe! ${files.size} rozdziałów MP3",
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        isGeneratingAudiobook = false,
+                        audiobookError = e.message ?: "Błąd generowania",
+                    )
+                }
+            }
+        }
+    }
+
+    /** Simple plain-text extraction from EPUB zip */
+    private fun extractEpubText(epubFile: File): String {
+        val sb = StringBuilder()
+        java.util.zip.ZipFile(epubFile).use { zip ->
+            zip.entries().asSequence()
+                .filter { !it.isDirectory && (it.name.endsWith(".xhtml") || it.name.endsWith(".html")) }
+                .filter { !it.name.contains("nav", ignoreCase = true) }
+                .sortedBy { it.name }
+                .forEach { entry ->
+                    val html = zip.getInputStream(entry).bufferedReader().readText()
+                    // Basic HTML strip
+                    val text = html
+                        .replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), "")
+                        .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), "")
+                        .replace(Regex("<[^>]+>"), " ")
+                        .replace(Regex("\\s{2,}"), " ")
+                        .trim()
+                    if (text.length > 50) sb.append(text).append("\n\n")
+                }
+        }
+        return sb.toString()
     }
 
     private fun mapStageProgress(stage: String, pct: Int): Float {
