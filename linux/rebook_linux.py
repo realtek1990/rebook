@@ -290,6 +290,19 @@ class ReBookApp:
         self.root.geometry("680x760")
         self.root.minsize(600, 700)
 
+        # ── App Icon ──
+        try:
+            from PIL import Image, ImageTk
+            _icon_path = APP_DIR / "assets" / "linux" / "rebook_256.png"
+            if not _icon_path.exists():
+                _icon_path = APP_DIR.parent / "assets" / "linux" / "rebook_256.png"
+            if _icon_path.exists():
+                _img = ImageTk.PhotoImage(Image.open(_icon_path))
+                self.root.iconphoto(True, _img)
+                self._icon_ref = _img  # prevent GC
+        except Exception:
+            pass
+
         self._selected_file = None
         self._output_path = None
         self._converting = False

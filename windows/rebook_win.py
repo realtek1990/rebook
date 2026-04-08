@@ -302,6 +302,16 @@ class ReBookApp:
         self.root.geometry("680x760")
         self.root.minsize(600, 700)
 
+        # ── App Icon ──
+        try:
+            _ico = APP_DIR / "assets" / "icon.ico"
+            if not _ico.exists():
+                _ico = APP_DIR.parent / "assets" / "icon.ico"
+            if _ico.exists():
+                self.root.iconbitmap(str(_ico))
+        except Exception:
+            pass
+
         self._selected_file = None
         self._output_path = None
         self._converting = False
