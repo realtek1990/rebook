@@ -66,7 +66,8 @@ Zasady:
 5. NIE ŁĄCZ i NIE POMIJAJ akapitów. Każdy akapit z oryginału MUSI pojawić się w tłumaczeniu. Nie skracaj tekstu.
 6. NAGŁÓWKI (linie zaczynające się od #): Nagłówek to TYLKO krótki tytuł rozdziału lub sekcji (max 1-2 zdania). Jeśli widzisz że po znaku # znajduje się długi akapit (ponad 2 zdania), zamień go na zwykły tekst pogrubiony (**tekst**) — to ewidentny błąd formatowania z OCR.
 7. WYCZYŚĆ ARTEFAKTY: Jeśli w tekście występują śmieci techniczne takie jak: deklaracje XML (<?xml ...?>), znaczniki HTML (<div>, <span>, itp.), kody DOCTYPE, encje HTML (&amp; &nbsp;) — USUŃ JE i zostaw tylko czysty tekst.
-8. Zwróć TYLKO wynik tłumaczenia. Nie dołączaj swoich notatek, wstępów ani komentarzy typu „Oto tłumaczenie:" czy „Zachowałem formatowanie".
+8. NIE NUMERUJ akapitów — nie dodawaj cyfr (1., 2., 3.) ani liczb przed fragmentami tekstu jeśli ich nie było w oryginale.
+9. Zwróć TYLKO wynik tłumaczenia. Nie dodawaj notatek ani komentarzy.
 """
     else:
         return """Jesteś ekspertem od korekty tekstu polskiego z OCR. Twoim jedynym zadaniem jest poprawienie błędów powstałych podczas skanowania i rozpoznawania tekstu (OCR).
@@ -78,7 +79,8 @@ Zasady:
 4. Popraw oczywiste literówki OCR (np. "rn" zamiast "m", "1" zamiast "l")
 5. NIE zmieniaj treści, NIE dodawaj niczego, NIE parafrazuj
 6. Zachowaj formatowanie markdown (nagłówki #, listy -, cytaty >) jeśli istnieją
-7. Zwróć TYLKO poprawiony tekst, bez komentarzy ani przemyśleń"""
+7. NIE NUMERUJ akapitów — nie dodawaj cyfr (1., 2., 3.) przed linią jeśli jej nie było w oryginale.
+8. Zwróć TYLKO poprawiony tekst, bez komentarzy ani przemyśleń"""
 
 
 def process_mega_block(text: str, system_prompt: str, retries: int = 3) -> str:
@@ -907,6 +909,35 @@ _OCR_PROMPT = (
 )
 
 
+
+
+def _strip_page_numbers(text: str) -> str:
+    """Remove lone page numbers that OCR transcribes from headers/footers.
+
+    Scanned books have page numbers printed at top/bottom of each page.
+    OCR copies them as isolated lines like: 123, — 45 —, - 6 -, [7], (8)
+    These appear as stray numbers between paragraphs in the assembled text.
+    """
+    import re
+    lines = text.split('\n')
+    cleaned = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # Lone number: digits optionally wrapped in dash/bracket/paren
+        is_lone_number = bool(re.fullmatch(
+            r'[\-\—\–\·\[\(]?\s*\d{1,4}\s*[\-\—\–\·\]\)]?',
+            stripped
+        ))
+        if is_lone_number and stripped:
+            prev_blank = (i == 0) or (lines[i - 1].strip() == '')
+            next_blank = (i == len(lines) - 1) or (lines[i + 1].strip() == '')
+            if prev_blank and next_blank:
+                cleaned.append('')
+                continue
+        cleaned.append(line)
+    result = re.sub(r'\n{3,}', '\n\n', '\n'.join(cleaned))
+    return result
+
 def get_ocr_config(config: dict = None) -> dict:
     """Return effective OCR config (merging main config defaults)."""
     if config is None:
@@ -1019,6 +1050,7 @@ def _mistral_ocr(
         raise RuntimeError("Mistral OCR: brak stron w odpowiedzi")
 
     text = "\n\n".join(p.get("markdown", "") for p in pages).strip()
+    text = _strip_page_numbers(text)
     _report(100, f"Mistral OCR zakonczone ({len(pages)} stron, {len(text):,} znakow)")
     return text
 
@@ -1129,7 +1161,7 @@ def _gemini_ocr(
     text = "\n".join(p.get("text", "") for p in parts if "text" in p).strip()
     if not text:
         raise RuntimeError("Gemini OCR: pusta odpowiedz modelu")
-
+    text = _strip_page_numbers(text)
     _report(100, f"Gemini OCR zakonczone ({len(text):,} znakow)")
     return text
 

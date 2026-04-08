@@ -28,7 +28,8 @@ Zasady:
 4. Popraw oczywiste literówki OCR (np. "rn" zamiast "m", "1" zamiast "l")
 5. NIE zmieniaj treści, NIE dodawaj niczego, NIE parafrazuj
 6. Zachowaj formatowanie markdown (nagłówki #, listy -, cytaty >) jeśli istnieją
-7. Zwróć TYLKO poprawiony tekst, bez komentarzy ani przemyśleń"""
+7. NIE NUMERUJ akapitów — nie dodawaj cyfr (1., 2., 3.) ani numerów przed fragmentami tekstu jeśli ich nie było w oryginale.
+8. Zwróć TYLKO poprawiony tekst, bez komentarzy ani przemyśleń"""
         }
 
         val frm = if (langFrom.isNotBlank()) "z języka: $langFrom" else "z języka źródłowego"
@@ -70,7 +71,8 @@ Zasady:
 5. NIE ŁĄCZ i NIE POMIJAJ akapitów. Każdy akapit z oryginału MUSI pojawić się w tłumaczeniu.
 6. NAGŁÓWKI (linie zaczynające się od #): max 1-2 zdania. Długie akapity po # zamień na **tekst**.
 7. WYCZYŚĆ ARTEFAKTY: XML, HTML, DOCTYPE, encje HTML — USUŃ i zostaw czysty tekst.
-8. Zwróć TYLKO wynik tłumaczenia."""
+8. NIE NUMERUJ akapitów — nie dodawaj cyfr (1., 2., 3.) ani numerów przed fragmentami tekstu jeśli ich nie było w oryginale.
+9. Zwróć TYLKO wynik tłumaczenia."""
     }
 
     /**
