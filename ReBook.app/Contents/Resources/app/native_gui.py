@@ -186,6 +186,8 @@ class AppDelegate(NSObject):
             self._kindleEmailField = None
             self._smtpEmailField = None
             self._smtpPassField = None
+            self._ocrProviderPopup = None
+            self._ocrKeyField = None
             self._settingsWindow = None
             self._dropView = None
             self._fileBadgeView = None
@@ -570,8 +572,42 @@ class AppDelegate(NSObject):
                 self._markerInstallBtn.setTarget_(self)
                 self._markerInstallBtn.setAction_("installMarker:")
                 sv.addSubview_(self._markerInstallBtn)
+                y += 40
             else:
                 self._markerInstallBtn = None
+                y += 8
+
+            # ── OCR Provider Section ─────────────────────────────────────
+            sep_ocr = NSBox.alloc().initWithFrame_(NSMakeRect(p, y, cw, 1))
+            sep_ocr.setBoxType_(NSBoxSeparator)
+            sv.addSubview_(sep_ocr)
+            y += 16
+
+            ocrSec = _label("OCR", size=11, bold=True, color=NSColor.secondaryLabelColor())
+            ocrSec.setFrame_(NSMakeRect(p, y, cw, 14))
+            sv.addSubview_(ocrSec)
+            y += 24
+
+            ocrProvLabel = _label("Provider OCR:", size=12)
+            ocrProvLabel.setFrame_(NSMakeRect(p, y, cw, 16))
+            sv.addSubview_(ocrProvLabel)
+            y += 20
+
+            self._ocrProviderPopup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(p, y, cw, 26))
+            ocr_prov_options = ["Auto (najlepszy dostępny)", "Mistral OCR", "Gemini Cloud OCR", "Marker (lokalny)"]
+            for opt in ocr_prov_options:
+                self._ocrProviderPopup.addItemWithTitle_(opt)
+            sv.addSubview_(self._ocrProviderPopup)
+            y += 32
+
+            ocrKeyLabel = _label("Klucz OCR (pusty = użyj klucza głównego):", size=12)
+            ocrKeyLabel.setFrame_(NSMakeRect(p, y, cw, 16))
+            sv.addSubview_(ocrKeyLabel)
+            y += 20
+
+            self._ocrKeyField = _textfield("", secure=True)
+            self._ocrKeyField.setFrame_(NSMakeRect(p, y, cw, 24))
+            sv.addSubview_(self._ocrKeyField)
 
         except Exception as e:
             import traceback
@@ -685,6 +721,13 @@ class AppDelegate(NSObject):
             self._kindleEmailField.setStringValue_(cfg.get("kindle_email", ""))
             self._smtpEmailField.setStringValue_(cfg.get("smtp_email", ""))
             self._smtpPassField.setStringValue_(cfg.get("smtp_pass", ""))
+            # OCR fields
+            ocr_map = {"auto": 0, "mistral": 1, "gemini": 2, "marker": 3}
+            ocr_idx = ocr_map.get(cfg.get("ocr_provider", "auto"), 0)
+            if self._ocrProviderPopup:
+                self._ocrProviderPopup.selectItemAtIndex_(ocr_idx)
+            if self._ocrKeyField:
+                self._ocrKeyField.setStringValue_(cfg.get("ocr_api_key", ""))
             NSApp.beginSheet_modalForWindow_modalDelegate_didEndSelector_contextInfo_(self._settingsWindow, self._window, None, None, None)
         except Exception as e:
             self._showAlert(t("error_prefix"), str(e))
@@ -706,6 +749,8 @@ class AppDelegate(NSObject):
                 "kindle_email": str(self._kindleEmailField.stringValue()),
                 "smtp_email": str(self._smtpEmailField.stringValue()),
                 "smtp_pass": str(self._smtpPassField.stringValue()),
+                "ocr_provider": ["auto", "mistral", "gemini", "marker"][self._ocrProviderPopup.indexOfSelectedItem()] if self._ocrProviderPopup else "auto",
+                "ocr_api_key": str(self._ocrKeyField.stringValue()) if self._ocrKeyField else "",
             }
             save_config_file(data)
             NSApp.endSheet_(self._settingsWindow)

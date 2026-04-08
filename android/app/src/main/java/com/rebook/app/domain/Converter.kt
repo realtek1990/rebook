@@ -47,8 +47,14 @@ object Converter {
         // ── Step 2: Extract text ──
         val rawText: String = when (inputExt) {
             "pdf" -> {
-                onProgress("ocr", 5, "OCR: uruchamianie ML Kit...")
-                OcrEngine.ocrPdf(context, inputFile) { pct, msg ->
+                val ocrLabel = when (config.ocrProvider) {
+                    "mistral" -> "Mistral OCR"
+                    "gemini"  -> "Gemini Cloud OCR"
+                    "marker"  -> "ML Kit OCR"
+                    else      -> "OCR"
+                }
+                onProgress("ocr", 5, "$ocrLabel: uruchamianie\u2026")
+                OcrEngine.ocrPdf(context, inputFile, config) { pct, msg ->
                     onProgress("ocr", pct, msg)
                 }
             }

@@ -600,12 +600,33 @@ class ReBookApp:
                                             win, marker_btn, marker_status))
             marker_btn.pack(fill="x", padx=20, pady=2)
 
+
+        # ── OCR Provider Section ──
+        ctk.CTkLabel(win, text="OCR",
+                     font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
+            anchor="w", padx=20, pady=(16, 4))
+
+        ocr_providers_display = ["Auto (najlepszy dostępny)", "Mistral OCR", "Gemini Cloud OCR", "Marker (lokalny)"]
+        ocr_providers_keys    = ["auto", "mistral", "gemini", "marker"]
+        cur_ocr = cfg.get("ocr_provider", "auto")
+        cur_ocr_idx = ocr_providers_keys.index(cur_ocr) if cur_ocr in ocr_providers_keys else 0
+
+        ocr_prov_var = ctk.StringVar(value=ocr_providers_display[cur_ocr_idx])
+        ctk.CTkLabel(win, text="Provider OCR:").pack(anchor="w", padx=20, pady=(4, 0))
+        ctk.CTkOptionMenu(win, values=ocr_providers_display, variable=ocr_prov_var).pack(fill="x", padx=20, pady=2)
+
+        ctk.CTkLabel(win, text="Klucz OCR (pusty = użyj klucza głównego):").pack(anchor="w", padx=20, pady=(8, 0))
+        ocr_key_entry = ctk.CTkEntry(win, show="•")
+        ocr_key_entry.insert(0, cfg.get("ocr_api_key", ""))
+        ocr_key_entry.pack(fill="x", padx=20, pady=2)
+
         # Buttons
         btn_row = ctk.CTkFrame(win, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=16)
 
         def _save():
             idx = prov_names.index(prov_var.get()) if prov_var.get() in prov_names else 0
+            ocr_idx = ocr_providers_keys.index(ocr_prov_var.get()) if ocr_prov_var.get() in ocr_providers_display else 0
             save_config({
                 "llm_provider": prov_keys[idx],
                 "model_name": model_var.get(),
@@ -613,6 +634,8 @@ class ReBookApp:
                 "kindle_email": kindle_entry.get(),
                 "smtp_email": smtp_entry.get(),
                 "smtp_pass": smtp_pass.get(),
+                "ocr_provider": ocr_providers_keys[ocr_idx],
+                "ocr_api_key": ocr_key_entry.get(),
             })
             win.destroy()
 

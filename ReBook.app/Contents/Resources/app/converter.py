@@ -105,7 +105,19 @@ def convert_file(
 
     else:  # .pdf
         report("ocr", 0, "OCR — rozpoznawanie tekstu…")
-        md_text = _run_marker(src, job_dir, progress_callback)
+        cfg = corrector.get_config()
+        cloud_text = None
+        if corrector.is_cloud_ocr_available(cfg):
+            try:
+                cloud_text = corrector.ocr_pdf(
+                    str(src), config=cfg, progress_callback=progress_callback
+                )
+            except Exception as e:
+                report("ocr", 0, f"⚠️ Cloud OCR nie powiodło się ({e}) — używam Marker…")
+        if cloud_text is not None:
+            md_text = cloud_text
+        else:
+            md_text = _run_marker(src, job_dir, progress_callback)
         report("ocr", 100, "OCR zakończone")
 
     # ── Stage 2: AI Correction / Translation ──────────────────────────────

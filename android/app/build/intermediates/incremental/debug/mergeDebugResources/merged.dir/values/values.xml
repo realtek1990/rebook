@@ -438,8 +438,16 @@
     <string name="settings_kindle_header">Kindle</string>
     <string name="settings_llm_header">AI Provider</string>
     <string name="settings_model">Model</string>
+    <string name="settings_ocr_api_key">Klucz API OCR</string>
     <string name="settings_ocr_header">PDF OCR</string>
     <string name="settings_ocr_info">ReBook uses Google ML Kit for on-device OCR. It works offline with no additional downloads. Supports 100+ languages.</string>
+    <string name="settings_ocr_key_hint">Pusty = użyj klucza głównego</string>
+    <string name="settings_ocr_provider">Provider OCR</string>
+    <string name="settings_ocr_status_fallback">⚠️ Brak klucza OCR — użyje klucza głównego</string>
+    <string name="settings_ocr_status_local">✅ ML Kit — tryb offline</string>
+    <string name="settings_ocr_status_nokey">❌ Brak klucza — Cloud OCR niedostępny</string>
+    <string name="settings_ocr_status_ready">✅ %s gotowy</string>
+    <string name="settings_ocr_subtitle">Osobny provider do rozpoznawania tekstu z PDF</string>
     <string name="settings_provider">Provider</string>
     <string name="settings_save">Save</string>
     <string name="settings_title">Settings</string>

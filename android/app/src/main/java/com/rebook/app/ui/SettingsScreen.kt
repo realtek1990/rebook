@@ -17,6 +17,15 @@ import com.rebook.app.R
 import com.rebook.app.data.AppConfig
 import com.rebook.app.domain.AiProvider
 
+// OCR providers available in Settings
+private data class OcrProviderOption(val key: String, val displayName: String)
+private val OCR_PROVIDERS = listOf(
+    OcrProviderOption("auto",    "Auto (najlepszy dostępny)"),
+    OcrProviderOption("mistral", "Mistral OCR"),
+    OcrProviderOption("gemini",  "Gemini Cloud OCR"),
+    OcrProviderOption("marker",  "ML Kit (lokalny, offline)"),
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -24,13 +33,19 @@ fun SettingsScreen(
     onSave: (AppConfig) -> Unit,
     onBack: () -> Unit,
 ) {
-    var provider by remember { mutableStateOf(currentConfig.llmProvider) }
-    var model by remember { mutableStateOf(currentConfig.modelName) }
-    var apiKey by remember { mutableStateOf(currentConfig.apiKey) }
+    var provider    by remember { mutableStateOf(currentConfig.llmProvider) }
+    var model       by remember { mutableStateOf(currentConfig.modelName) }
+    var apiKey      by remember { mutableStateOf(currentConfig.apiKey) }
     var kindleEmail by remember { mutableStateOf(currentConfig.kindleEmail) }
 
-    val providerInfo = AiProvider.PROVIDERS
+    // OCR state
+    var ocrProvider by remember { mutableStateOf(currentConfig.ocrProvider) }
+    var ocrApiKey   by remember { mutableStateOf(currentConfig.ocrApiKey) }
+    var ocrModel    by remember { mutableStateOf(currentConfig.ocrModel) }
+
+    val providerInfo     = AiProvider.PROVIDERS
     val selectedProvider = providerInfo.find { it.key == provider }
+    val selectedOcrProv  = OCR_PROVIDERS.find { it.key == ocrProvider } ?: OCR_PROVIDERS[0]
 
     Scaffold(
         topBar = {
@@ -51,7 +66,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
         ) {
-            // ── LLM Provider Section ──
+            // ── LLM Provider Section ──────────────────────────────────────
             Text(
                 stringResource(R.string.settings_llm_header),
                 style = MaterialTheme.typography.titleMedium,
@@ -117,7 +132,7 @@ fun SettingsScreen(
                 }
             }
 
-            // API Key
+            // API Key (LLM)
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
@@ -131,7 +146,81 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
 
-            // ── Kindle Section ──
+            // ── OCR Provider Section ──────────────────────────────────────
+            Text(
+                stringResource(R.string.settings_ocr_header),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.settings_ocr_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
+
+            // OCR Provider dropdown
+            var ocrExpanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = ocrExpanded,
+                onExpandedChange = { ocrExpanded = it },
+            ) {
+                OutlinedTextField(
+                    value = selectedOcrProv.displayName,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(stringResource(R.string.settings_ocr_provider)) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(ocrExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                )
+                ExposedDropdownMenu(expanded = ocrExpanded, onDismissRequest = { ocrExpanded = false }) {
+                    OCR_PROVIDERS.forEach { o ->
+                        DropdownMenuItem(
+                            text = { Text(o.displayName) },
+                            onClick = { ocrProvider = o.key; ocrExpanded = false },
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+
+            // OCR API Key — only shown when not using local Marker
+            AnimatedVisibility(visible = ocrProvider != "marker") {
+                Column {
+                    OutlinedTextField(
+                        value = ocrApiKey,
+                        onValueChange = { ocrApiKey = it },
+                        label = { Text(stringResource(R.string.settings_ocr_api_key)) },
+                        placeholder = { Text(stringResource(R.string.settings_ocr_key_hint)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+
+            // Status badge
+            val statusText = when {
+                ocrProvider == "marker" -> stringResource(R.string.settings_ocr_status_local)
+                ocrApiKey.isNotBlank()  -> stringResource(R.string.settings_ocr_status_ready, selectedOcrProv.displayName)
+                apiKey.isNotBlank()     -> stringResource(R.string.settings_ocr_status_fallback)
+                else                    -> stringResource(R.string.settings_ocr_status_nokey)
+            }
+            val statusColor = when {
+                ocrProvider == "marker"             -> MaterialTheme.colorScheme.secondary
+                ocrApiKey.isNotBlank()              -> MaterialTheme.colorScheme.primary
+                apiKey.isNotBlank()                 -> MaterialTheme.colorScheme.tertiary
+                else                                -> MaterialTheme.colorScheme.error
+            }
+            Text(statusText, style = MaterialTheme.typography.bodySmall, color = statusColor)
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // ── Kindle Section ────────────────────────────────────────────
             Text(
                 stringResource(R.string.settings_kindle_header),
                 style = MaterialTheme.typography.titleMedium,
@@ -147,31 +236,9 @@ fun SettingsScreen(
                 singleLine = true,
             )
 
-            Spacer(Modifier.height(24.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
-
-            // ── OCR Info ──
-            Text(
-                stringResource(R.string.settings_ocr_header),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(8.dp))
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-            ) {
-                Text(
-                    stringResource(R.string.settings_ocr_info),
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-
             Spacer(Modifier.height(32.dp))
 
-            // ── Save / Cancel ──
+            // ── Save / Cancel ─────────────────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -187,9 +254,12 @@ fun SettingsScreen(
                     onClick = {
                         onSave(AppConfig(
                             llmProvider = provider,
-                            modelName = model,
-                            apiKey = apiKey,
+                            modelName   = model,
+                            apiKey      = apiKey,
                             kindleEmail = kindleEmail,
+                            ocrProvider = ocrProvider,
+                            ocrApiKey   = ocrApiKey,
+                            ocrModel    = ocrModel,
                         ))
                         onBack()
                     },

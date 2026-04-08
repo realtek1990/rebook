@@ -889,3 +889,303 @@ Oto tekst:
     return '\n'.join(lines)
 
 
+# ─── Dual-Provider OCR Layer ──────────────────────────────────────────────────
+
+_MISTRAL_OCR_MODEL = "mistral-ocr-latest"
+_GEMINI_OCR_MODEL  = "gemini-2.5-flash-lite"
+_GEMINI_OCR_SIZE_MB = 50
+
+_OCR_PROMPT = (
+    "Wyciagnij caly tekst z tego dokumentu PDF jako czysty Markdown.\n\n"
+    "Zasady:\n"
+    "1. Uzywaj # dla tytulów rozdzialów i ## dla podrozdzialów.\n"
+    "2. Kazdy akapit oddziel pusta linia.\n"
+    "3. Zachowaj listy punktowane jako - item.\n"
+    "4. Zachowaj listy numerowane jako 1. item.\n"
+    "5. NIE dodawaj wlasnych komentarzy, podsumowań ani wstepow.\n"
+    "6. Zwroc TYLKO tekst dokumentu w formacie Markdown."
+)
+
+
+def get_ocr_config(config: dict = None) -> dict:
+    """Return effective OCR config (merging main config defaults)."""
+    if config is None:
+        config = get_config()
+    ocr_key = config.get("ocr_api_key", "").strip() or config.get("api_key", "").strip()
+    ocr_model = config.get("ocr_model", "").strip()
+    ocr_provider = config.get("ocr_provider", "auto").strip().lower()
+    return {
+        "provider": ocr_provider,
+        "api_key": ocr_key,
+        "model": ocr_model,
+        "llm_provider": config.get("llm_provider", "").strip().lower(),
+        "llm_api_key": config.get("api_key", "").strip(),
+    }
+
+
+def is_cloud_ocr_available(config: dict = None) -> bool:
+    """True when a cloud OCR provider is configured with a valid key."""
+    c = get_ocr_config(config)
+    prov = c["provider"]
+    if prov == "marker":
+        return False
+    if prov in ("mistral", "gemini"):
+        return bool(c["api_key"])
+    # auto: available if any cloud key exists
+    if c["api_key"] and c["llm_provider"] in ("gemini", "mistral"):
+        return True
+    return bool(c.get("api_key") and config and config.get("ocr_api_key"))
+
+
+def get_ocr_provider_display(config: dict = None) -> str:
+    """Human-readable name of the active OCR provider."""
+    c = get_ocr_config(config)
+    prov = c["provider"]
+    names = {
+        "mistral": "Mistral OCR",
+        "gemini": "Gemini Cloud OCR",
+        "marker": "Marker OCR (lokalny)",
+        "auto": "Auto (najlepszy dostepny)",
+    }
+    return names.get(prov, prov)
+
+
+def _mistral_ocr(
+    pdf_path: str,
+    config: dict = None,
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+) -> str:
+    """OCR via Mistral OCR API. Returns markdown text."""
+    import base64
+    import urllib.request
+    import urllib.error
+    import json as _json
+
+    def _report(pct: int, msg: str):
+        if progress_callback:
+            progress_callback("ocr", pct, msg)
+
+    c = get_ocr_config(config)
+    key = c["api_key"]
+    if not key:
+        raise RuntimeError(
+            "Brak klucza Mistral OCR!\n"
+            "Wejdz w Ustawienia (OCR) i wklej klucz Mistral API."
+        )
+    model = c["model"] or _MISTRAL_OCR_MODEL
+
+    pdf_bytes = Path(pdf_path).read_bytes()
+    size_mb = len(pdf_bytes) / (1024 * 1024)
+    _report(10, f"Mistral OCR — {size_mb:.1f} MB...")
+
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    payload = {
+        "model": model,
+        "document": {
+            "type": "document_url",
+            "document_url": f"data:application/pdf;base64,{b64}",
+        },
+        "include_image_base64": False,
+    }
+
+    req = urllib.request.Request(
+        "https://api.mistral.ai/v1/ocr",
+        _json.dumps(payload).encode("utf-8"),
+        {"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+    )
+
+    _report(30, "Mistral OCR przetwarza dokument...")
+    retries = 3
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                result = _json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as e:
+            err = e.read().decode(errors="replace")
+            if attempt < retries - 1 and e.code in (429, 500, 503):
+                time.sleep(10 * (attempt + 1))
+                _report(30, f"Ponawiam ({attempt+2}/{retries})...")
+                continue
+            raise RuntimeError(f"Mistral OCR error {e.code}: {err[:300]}")
+        except Exception as exc:
+            if attempt < retries - 1:
+                time.sleep(5)
+                continue
+            raise RuntimeError(f"Mistral OCR network error: {exc}")
+
+    pages = result.get("pages", [])
+    if not pages:
+        raise RuntimeError("Mistral OCR: brak stron w odpowiedzi")
+
+    text = "\n\n".join(p.get("markdown", "") for p in pages).strip()
+    _report(100, f"Mistral OCR zakonczone ({len(pages)} stron, {len(text):,} znakow)")
+    return text
+
+
+def _gemini_ocr(
+    pdf_path: str,
+    config: dict = None,
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+) -> str:
+    """OCR via Gemini native PDF API. Returns markdown text."""
+    import base64
+    import urllib.request
+    import urllib.error
+    import json as _json
+
+    def _report(pct: int, msg: str):
+        if progress_callback:
+            progress_callback("ocr", pct, msg)
+
+    c = get_ocr_config(config)
+    key = c["llm_api_key"] or c["api_key"]
+    if not key:
+        raise RuntimeError("Brak klucza Gemini API dla Cloud OCR.")
+
+    configured_model = c["model"]
+    model = (configured_model if configured_model.startswith("gemini")
+             else _GEMINI_OCR_MODEL)
+
+    pdf_bytes = Path(pdf_path).read_bytes()
+    size_mb = len(pdf_bytes) / (1024 * 1024)
+    base_url = "https://generativelanguage.googleapis.com/v1beta"
+
+    _report(10, f"Gemini Cloud OCR — {size_mb:.1f} MB...")
+
+    if size_mb <= _GEMINI_OCR_SIZE_MB:
+        b64 = base64.b64encode(pdf_bytes).decode("ascii")
+        payload = {
+            "contents": [{"parts": [
+                {"inline_data": {"mime_type": "application/pdf", "data": b64}},
+                {"text": _OCR_PROMPT},
+            ]}],
+            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 65536},
+        }
+    else:
+        # Files API for large PDFs
+        _report(15, f"Duzy plik — Files API upload ({size_mb:.0f} MB)...")
+        num_bytes = len(pdf_bytes)
+        init_url = f"{base_url}/files?key={key}"
+        init_headers = {
+            "X-Goog-Upload-Protocol": "resumable",
+            "X-Goog-Upload-Command": "start",
+            "X-Goog-Upload-Header-Content-Length": str(num_bytes),
+            "X-Goog-Upload-Header-Content-Type": "application/pdf",
+            "Content-Type": "application/json",
+        }
+        init_body = _json.dumps({"file": {"display_name": Path(pdf_path).name}}).encode()
+        req0 = urllib.request.Request(init_url, data=init_body, headers=init_headers, method="POST")
+        with urllib.request.urlopen(req0, timeout=60) as r:
+            upload_url = r.headers.get("X-Goog-Upload-URL")
+        if not upload_url:
+            raise RuntimeError("Gemini Files API: brak upload URL")
+        _report(25, "Wgrywanie PDF do Gemini Files API...")
+        ureq = urllib.request.Request(upload_url, data=pdf_bytes, headers={
+            "Content-Length": str(num_bytes),
+            "X-Goog-Upload-Offset": "0",
+            "X-Goog-Upload-Command": "upload, finalize",
+        }, method="PUT")
+        with urllib.request.urlopen(ureq, timeout=600) as r:
+            finfo = _json.loads(r.read())
+        file_uri = finfo.get("file", {}).get("uri") or finfo.get("uri")
+        if not file_uri:
+            raise RuntimeError("Gemini Files API: brak URI po uploadzie")
+        payload = {
+            "contents": [{"parts": [
+                {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
+                {"text": _OCR_PROMPT},
+            ]}],
+            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 65536},
+        }
+
+    gen_url = f"{base_url}/models/{model}:generateContent?key={key}"
+    req = urllib.request.Request(
+        gen_url, _json.dumps(payload).encode(),
+        {"Content-Type": "application/json"}, method="POST"
+    )
+
+    _report(50, "Gemini przetwarza dokument...")
+    retries = 3
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                result = _json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            err = e.read().decode(errors="replace")
+            if attempt < retries - 1 and e.code in (429, 500, 503):
+                time.sleep(10 * (attempt + 1))
+                _report(50, f"Ponawiam ({attempt + 2}/{retries})...")
+                continue
+            raise RuntimeError(f"Gemini OCR error {e.code}: {err[:300]}")
+        except Exception as exc:
+            if attempt < retries - 1:
+                time.sleep(5)
+                continue
+            raise RuntimeError(f"Gemini OCR network error: {exc}")
+
+    parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+    text = "\n".join(p.get("text", "") for p in parts if "text" in p).strip()
+    if not text:
+        raise RuntimeError("Gemini OCR: pusta odpowiedz modelu")
+
+    _report(100, f"Gemini OCR zakonczone ({len(text):,} znakow)")
+    return text
+
+
+def ocr_pdf(
+    pdf_path: str,
+    config: dict = None,
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+) -> Optional[str]:
+    """Unified OCR dispatcher for all desktop platforms.
+
+    Returns:
+        str  — extracted markdown text (cloud OCR succeeded)
+        None — caller should fall back to local Marker OCR
+    """
+    if config is None:
+        config = get_config()
+    c = get_ocr_config(config)
+    prov = c["provider"]
+
+    def _report(pct, msg):
+        if progress_callback:
+            progress_callback("ocr", pct, msg)
+
+    if prov == "mistral":
+        return _mistral_ocr(pdf_path, config, progress_callback)
+
+    if prov == "gemini":
+        return _gemini_ocr(pdf_path, config, progress_callback)
+
+    if prov == "marker":
+        return None  # explicit local mode
+
+    # "auto" — try best available, fall back silently
+    # 1. Mistral (best quality, check ocr_api_key first)
+    if c["api_key"] and (config.get("ocr_api_key") or
+                         c["provider"] == "mistral" or
+                         config.get("ocr_provider") == "mistral"):
+        try:
+            return _mistral_ocr(pdf_path, config, progress_callback)
+        except Exception:
+            _report(0, "Mistral OCR niedostepny — probuje Gemini...")
+
+    # 2. Gemini (if llm_provider is gemini)
+    if c["llm_provider"] == "gemini" and c["llm_api_key"]:
+        try:
+            return _gemini_ocr(pdf_path, config, progress_callback)
+        except Exception:
+            _report(0, "Gemini OCR niedostepny — uzywam Marker...")
+
+    # 3. Mistral with main api_key (if provider is mistral)
+    if c["llm_provider"] == "mistral" and c["llm_api_key"] and not config.get("ocr_api_key"):
+        try:
+            return _mistral_ocr(pdf_path, config, progress_callback)
+        except Exception:
+            pass
+
+    return None  # fall back to Marker
+

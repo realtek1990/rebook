@@ -1101,8 +1101,16 @@ string settings_kindle_email
 string settings_kindle_header
 string settings_llm_header
 string settings_model
+string settings_ocr_api_key
 string settings_ocr_header
 string settings_ocr_info
+string settings_ocr_key_hint
+string settings_ocr_provider
+string settings_ocr_status_fallback
+string settings_ocr_status_local
+string settings_ocr_status_nokey
+string settings_ocr_status_ready
+string settings_ocr_subtitle
 string settings_provider
 string settings_save
 string settings_title
