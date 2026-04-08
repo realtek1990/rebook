@@ -147,22 +147,9 @@ jobs:
           pip install ebooklib markdown beautifulsoup4 markdownify Pillow PyMuPDF
           pip install customtkinter litellm || true
 
-      - name: Build ReBook.dmg
+      - name: Build ReBook.dmg (with installer + signing)
         run: |
           chmod +x build_dmg.sh
-          ./build_dmg.sh
-          ls -lh ReBook.dmg
-
-      - name: Ad-hoc codesign + strip quarantine
-        run: |
-          # 1. Deep ad-hoc sign with hardened runtime flag
-          codesign --force --deep --sign - --options runtime ReBook.app
-          codesign --verify --deep --strict ReBook.app
-          echo "✅ Ad-hoc signed (runtime hardening)"
-          # 2. Strip macOS quarantine attribute from app bundle
-          xattr -cr ReBook.app
-          # 3. Rebuild DMG with signed, quarantine-free app
-          rm -f ReBook.dmg
           ./build_dmg.sh
           ls -lh ReBook.dmg
 

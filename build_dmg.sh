@@ -1,6 +1,7 @@
 #!/bin/bash
-# ── ReBook DMG Builder ─────────────────────────────────────────────
-# Creates a distributable ReBook.dmg with the app and /Applications symlink.
+# ── ReBook DMG Builder ────────────────────────────────────────────────────────
+# Creates a distributable ReBook.dmg with the app, /Applications symlink,
+# and an installer script that handles Gatekeeper quarantine automatically.
 # Usage: ./build_dmg.sh
 set -e
 
@@ -23,11 +24,39 @@ ln -sf /Applications "${STAGING}/Applications"
 echo "🧹 Cleaning __pycache__..."
 find "${STAGING}/${APP_NAME}.app" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
+# Strip quarantine from within the bundle (belt-and-suspenders)
+xattr -cr "${STAGING}/${APP_NAME}.app" 2>/dev/null || true
+
 # Sign the app bundle (adhoc) — required for macOS to allow launch
 echo "🔏 Signing ${APP_NAME}.app..."
-codesign --force --deep --sign - "${STAGING}/${APP_NAME}.app"
+codesign --force --deep --sign - --options runtime "${STAGING}/${APP_NAME}.app"
 codesign --verify --deep "${STAGING}/${APP_NAME}.app"
 echo "   Signature OK"
+
+# ── Create the Gatekeeper-bypass installer script ────────────────────────────
+# Users right-click this .command file → Open (only once on first run),
+# then it strips quarantine and installs the app silently.
+INSTALLER="${STAGING}/Zainstaluj ReBook.command"
+cat > "${INSTALLER}" << 'INSTALLER_EOF'
+#!/bin/bash
+# ReBook Installer — usuwa blokadę Gatekeeper i instaluje aplikację
+DMG_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_SRC="${DMG_DIR}/ReBook.app"
+APP_DST="/Applications/ReBook.app"
+
+echo "🧹 Usuwam blokadę bezpieczeństwa Apple..."
+xattr -cr "${APP_SRC}" 2>/dev/null || true
+
+echo "💾 Kopiuję ReBook.app do folderu Aplikacje..."
+rm -rf "${APP_DST}"
+cp -R "${APP_SRC}" "${APP_DST}"
+
+echo "✅ Gotowe! Uruchamiam ReBook..."
+open "${APP_DST}"
+INSTALLER_EOF
+
+chmod +x "${INSTALLER}"
+echo "   Installer script created"
 
 # Build compressed DMG
 hdiutil create \
