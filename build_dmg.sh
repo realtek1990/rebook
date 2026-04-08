@@ -1,8 +1,11 @@
 #!/bin/bash
 # ── ReBook macOS Packager ─────────────────────────────────────────────────────
-# Produces BOTH:
-#   ReBook.dmg  — drag-and-drop with README
-#   ReBook.pkg  — macOS Installer (automatic quarantine removal via postinstall)
+# Produces:
+#   ReBook.dmg  — contains ReBook.app + Applications symlink + drag-to-install
+#   ReBook.pkg  — flat macOS Installer with postinstall quarantine removal
+#
+# The .pkg inside CI is published as a separate download.
+# The .dmg also includes an Install script for quick quarantine bypass.
 # Usage: ./build_dmg.sh
 set -e
 
@@ -14,7 +17,7 @@ STAGING="${SCRIPT_DIR}/.dmg_staging"
 PKG_STAGING="${SCRIPT_DIR}/.pkg_staging"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Sign the app bundle (ad-hoc, hardened runtime)
+# 1. Clean & sign the app bundle (ad-hoc, hardened runtime)
 # ─────────────────────────────────────────────────────────────────────────────
 echo "🔏 Signing ${APP_NAME}.app (ad-hoc)..."
 find "${SCRIPT_DIR}/${APP_NAME}.app" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
@@ -24,7 +27,7 @@ codesign --verify --deep "${SCRIPT_DIR}/${APP_NAME}.app"
 echo "   Signature OK"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Build DMG (drag-and-drop with README)
+# 2. Build DMG (drag-and-drop + Install.command)
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
 echo "📦 Building ${DMG_NAME}..."
@@ -33,21 +36,62 @@ mkdir -p "${STAGING}"
 cp -R "${SCRIPT_DIR}/${APP_NAME}.app" "${STAGING}/"
 ln -sf /Applications "${STAGING}/Applications"
 
-cat > "${STAGING}/PRZECZYTAJ PRZED URUCHOMIENIEM.txt" << 'README_EOF'
+# ── Install helper — user double-clicks this to bypass Gatekeeper ──
+cat > "${STAGING}/Instaluj ReBook.command" << 'INSTALL_EOF'
+#!/bin/bash
+# ╔══════════════════════════════════════════════════════════╗
+# ║   ReBook — Instalator macOS                              ║
+# ║   Ten skrypt kopiuje ReBook do Aplikacji                 ║
+# ║   i automatycznie wyłącza blokadę Gatekeeper.            ║
+# ╚══════════════════════════════════════════════════════════╝
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+APP_SRC="${SCRIPT_DIR}/ReBook.app"
+APP_DST="/Applications/ReBook.app"
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║       🔧 Instaluję ReBook...                ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+
+# Copy app to /Applications (replacing old version)
+if [ -d "$APP_DST" ]; then
+    echo "→ Usuwam starą wersję..."
+    rm -rf "$APP_DST"
+fi
+
+echo "→ Kopiuję do /Applications..."
+cp -R "$APP_SRC" "$APP_DST"
+
+# Strip quarantine flag (the key fix for Gatekeeper)
+echo "→ Wyłączam blokadę Gatekeeper..."
+xattr -dr com.apple.quarantine "$APP_DST" 2>/dev/null || true
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║  ✅ Gotowe! Uruchamiam ReBook...             ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+open "$APP_DST"
+INSTALL_EOF
+chmod +x "${STAGING}/Instaluj ReBook.command"
+
+# ── README ──
+cat > "${STAGING}/PRZECZYTAJ.txt" << 'README_EOF'
 ╔══════════════════════════════════════════════════════════╗
 ║          PIERWSZE URUCHOMIENIE — WAŻNE                   ║
 ╚══════════════════════════════════════════════════════════╝
 
-ZALECANE: Użyj zamiast tego pliku ReBook.pkg — instaluje
-          się jednym klikiem i pomija blokadę Apple.
+NAJŁATWIEJ: Kliknij dwukrotnie "Instaluj ReBook.command"
+            → zainstaluje i uruchomi ReBook automatycznie.
 
-Jeśli jednak chcesz zainstalować ręcznie z DMG:
-1. Przeciągnij ReBook.app do folderu Applications.
-2. Otwórz: Ustawienia systemowe → Prywatność i bezpieczeństwo
-3. Kliknij "Otwórz mimo to" i potwierdź hasłem.
-
-Szybka metoda przez Terminal:
-  xattr -dr com.apple.quarantine /Applications/ReBook.app
+Alternatywnie:
+  1. Przeciągnij ReBook.app do Applications.
+  2. Otwórz Terminal i wklej:
+     xattr -dr com.apple.quarantine /Applications/ReBook.app
+  3. Uruchom ReBook z Launchpada.
 
 Pytania: github.com/realtek1990/rebook
 README_EOF

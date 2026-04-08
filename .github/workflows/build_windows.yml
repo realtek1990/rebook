@@ -164,8 +164,9 @@ jobs:
             ## ReBook
 
             ### 🍎 macOS
-            **Zalecane:** Pobierz `ReBook.pkg` i uruchom instalatora — aplikacja zainstaluje się automatycznie bez blokad Gatekeeper.
-            Alternatywnie: pobierz `ReBook.dmg`, zamontuj i przeciągnij do Aplikacji (wymagana jednorazowa zgoda w Ustawieniach systemowych).
+            Pobierz `ReBook.dmg`, zamontuj i kliknij dwukrotnie **„Instaluj ReBook.command"** — app zainstaluje się i uruchomi automatycznie (bez blokad Gatekeeper).
+            Jeśli `.command` nie uruchamia się: kliknij prawym → Otwórz → Potwierdź.
+            Alternatywnie: pobierz `ReBook.pkg` (standardowy instalator macOS).
 
             ### 🪟 Windows
             Pobierz `ReBook-Windows-Installer.exe` i uruchom.
