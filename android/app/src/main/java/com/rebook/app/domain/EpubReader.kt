@@ -22,28 +22,51 @@ object EpubReader {
 
         // Find content.opf to get reading order
         val containerEntry = zip.getEntry("META-INF/container.xml")
-        val containerXml = zip.getInputStream(containerEntry).bufferedReader().readText()
-        val opfPath = Regex("full-path=\"([^\"]+)\"").find(containerXml)?.groupValues?.get(1) ?: "OEBPS/content.opf"
+        val opfPath: String
+        if (containerEntry != null) {
+            val containerXml = zip.getInputStream(containerEntry).bufferedReader().readText()
+            opfPath = Regex("""full-path\s*=\s*["']([^"']+)["']""").find(containerXml)?.groupValues?.get(1)
+                ?: "OEBPS/content.opf"
+        } else {
+            // Fallback: try common OPF paths
+            opfPath = listOf("OEBPS/content.opf", "content.opf", "OPS/content.opf")
+                .firstOrNull { zip.getEntry(it) != null } ?: "OEBPS/content.opf"
+        }
         val opfDir = opfPath.substringBeforeLast("/", "")
 
         // Parse content.opf for spine order
         val opfEntry = zip.getEntry(opfPath) ?: return "Error: Cannot find $opfPath"
         val opfXml = zip.getInputStream(opfEntry).bufferedReader().readText()
 
-        // Extract manifest items
+        // Extract manifest items — handle any attribute order
         val manifest = mutableMapOf<String, String>() // id -> href
-        Regex("<item\\s+[^>]*id=\"([^\"]+)\"[^>]*href=\"([^\"]+)\"[^>]*/?>").findAll(opfXml).forEach {
-            manifest[it.groupValues[1]] = it.groupValues[2]
+        // First find all <item .../> or <item ...>...</item> tags
+        Regex("""<item\s+([^>]+?)/?>""").findAll(opfXml).forEach { match ->
+            val attrs = match.groupValues[1]
+            val id = Regex("""id\s*=\s*"([^"]+)"""").find(attrs)?.groupValues?.get(1)
+            val href = Regex("""href\s*=\s*"([^"]+)"""").find(attrs)?.groupValues?.get(1)
+            if (id != null && href != null) {
+                manifest[id] = href
+            }
         }
 
         // Extract spine order
-        val spineIds = Regex("<itemref\\s+idref=\"([^\"]+)\"").findAll(opfXml).map { it.groupValues[1] }.toList()
+        val spineIds = Regex("""<itemref\s+[^>]*idref\s*=\s*"([^"]+)"""").findAll(opfXml).map { it.groupValues[1] }.toList()
+
+        // If spine is empty, fall back to manifest items with html/xhtml media-type
+        val orderedItems = if (spineIds.isNotEmpty()) {
+            spineIds.mapNotNull { manifest[it] }
+        } else {
+            manifest.values.filter { it.endsWith(".xhtml") || it.endsWith(".html") || it.endsWith(".htm") }
+        }
 
         // Read each spine item in order
-        for (id in spineIds) {
-            val href = manifest[id] ?: continue
+        for (href in orderedItems) {
             val entryPath = if (opfDir.isNotEmpty()) "$opfDir/$href" else href
-            val entry = zip.getEntry(entryPath) ?: continue
+            // Try both the raw path and URL-decoded path
+            val entry = zip.getEntry(entryPath)
+                ?: zip.getEntry(java.net.URLDecoder.decode(entryPath, "UTF-8"))
+                ?: continue
 
             try {
                 val html = zip.getInputStream(entry).bufferedReader().readText()
