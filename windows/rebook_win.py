@@ -480,13 +480,26 @@ class ReBookApp:
         ctk.CTkButton(btn_row, text=t("kindle_btn"), command=self._send_kindle,
                       height=36, fg_color="gray50").pack(side="left", padx=4)
 
-        # ── Audiobook panel (shown after EPUB conversion) ──────────────────────────────
+        # ── Audiobook panel — always visible ─────────────────────────────────────────
         self._audiobook_frame = ctk.CTkFrame(self._result_frame, fg_color="transparent")
 
         ctk.CTkLabel(self._audiobook_frame, text="─" * 40,
                      text_color=("gray60", "gray50")).pack(pady=(4, 0))
         ctk.CTkLabel(self._audiobook_frame, text="🎧 Audiobook",
                      font=ctk.CTkFont(size=13, weight="bold")).pack(pady=(4, 2))
+
+        # EPUB source row
+        epub_row = ctk.CTkFrame(self._audiobook_frame, fg_color="transparent")
+        epub_row.pack(fill="x", padx=16, pady=(0, 2))
+        self._audiobook_epub_label = ctk.CTkLabel(
+            epub_row, text="Brak pliku EPUB — wybierz lub konwertuj",
+            font=ctk.CTkFont(size=11), text_color=("gray50", "gray60")
+        )
+        self._audiobook_epub_label.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            epub_row, text="📂 Wybierz EPUB", width=130, height=28,
+            command=self._pick_audiobook_epub, fg_color="#3a5a8a"
+        ).pack(side="right")
 
         voice_row = ctk.CTkFrame(self._audiobook_frame, fg_color="transparent")
         voice_row.pack(fill="x", padx=16, pady=4)
@@ -534,6 +547,9 @@ class ReBookApp:
         )
         # Hidden until generation completes
         self._audiobook_output_dir = None
+        self._audiobook_epub_path = None  # path of EPUB to convert to audiobook
+        # Panel is always visible
+        self._audiobook_frame.pack(fill="x", padx=8, pady=(4, 8))
 
     # ── File handling ──
 
@@ -1025,13 +1041,33 @@ class ReBookApp:
         self._log_box.pack_forget()  # hide log to make room for result
         self._result_frame.pack(fill="x", padx=24, pady=8)
         self._append_log(t("all_done", name=Path(output_path).name))
-        # Show audiobook panel only for EPUB output
+        # Update audiobook panel EPUB source when conversion produces EPUB
         if str(output_path).endswith('.epub') and tts_engine:
+            self._audiobook_epub_path = str(output_path)
+            name = Path(output_path).name
+            self._audiobook_epub_label.configure(
+                text=f"📖 {name}", text_color=("gray30", "gray80")
+            )
             self._audiobook_status.configure(text="")
             self._audiobook_folder_btn.pack_forget()
-            self._audiobook_frame.pack(fill="x", padx=8, pady=(4, 8))
-        else:
-            self._audiobook_frame.pack_forget()
+        # Panel is always visible — no pack/pack_forget needed
+
+    def _pick_audiobook_epub(self):
+        """Let user pick any EPUB file for audiobook generation."""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Wybierz plik EPUB do audiobooka",
+            filetypes=[("Pliki EPUB", "*.epub"), ("Wszystkie pliki", "*.*")]
+        )
+        if path:
+            self._audiobook_epub_path = path
+            import os
+            name = os.path.basename(path)
+            self._audiobook_epub_label.configure(
+                text=f"📖 {name}", text_color=("gray30", "gray80")
+            )
+            self._audiobook_status.configure(text="")
+            self._audiobook_folder_btn.pack_forget()
 
     def _play_tts_sample(self):
         if not tts_engine:
@@ -1052,7 +1088,10 @@ class ReBookApp:
     def _generate_audiobook(self):
         if not tts_engine:
             return
-        src = getattr(self, '_output_path', None)
+        # Priority: 1) explicitly picked EPUB, 2) conversion output, 3) loaded input file
+        src = getattr(self, '_audiobook_epub_path', None)
+        if not src or not str(src).endswith('.epub'):
+            src = getattr(self, '_output_path', None)
         if not src or not str(src).endswith('.epub'):
             sel = getattr(self, '_selected_file', None)
             if sel and str(sel).endswith('.epub'):
