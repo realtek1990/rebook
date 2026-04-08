@@ -19,7 +19,7 @@ WORKSPACE = Path.home() / ".pdf2epub-app"
 CONFIG_FILE = WORKSPACE / "config.json"
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-W, H = 660, 740
+W, H = 660, 800
 PAD = 24
 CW = W - 2 * PAD
 
@@ -396,25 +396,34 @@ class AppDelegate(NSObject):
         cv.addSubview_(self._stopBtn)
         top -= 52
 
-        # ── Audiobook panel ───────────────────────────────────────────────
-        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 62, CW, 56))
-        self._audiobookPanel.setHidden_(True)
+        # ── Audiobook panel — always visible ─────────────────────────────
+        sep_ab = NSBox.alloc().initWithFrame_(NSMakeRect(PAD, top, CW, 1))
+        sep_ab.setBoxType_(NSBoxSeparator)
+        cv.addSubview_(sep_ab)
+        top -= 12
+
+        abHeader = _label("🎧 Audiobook", size=13, bold=True)
+        abHeader.setFrame_(NSMakeRect(PAD, top - 16, CW, 16))
+        cv.addSubview_(abHeader)
+        top -= 22
+
+        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 90, CW, 86))
 
         # Voice popup
         voice_keys = list(tts_engine.VOICES.keys())
         voice_labels = list(tts_engine.VOICES.values())
         voiceLbl = _label("🎙 Głos:", size=12)
-        voiceLbl.setFrame_(NSMakeRect(0, 34, 55, 16))
+        voiceLbl.setFrame_(NSMakeRect(0, 64, 55, 16))
         self._audiobookPanel.addSubview_(voiceLbl)
 
-        self._voicePopup = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(58, 30, 200, 24), False)
+        self._voicePopup = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(58, 60, 200, 24), False)
         for lbl in voice_labels:
             self._voicePopup.addItemWithTitle_(lbl)
         self._audiobookPanel.addSubview_(self._voicePopup)
         self._voiceKeys = voice_keys
 
         # Sample play button
-        self._sampleBtn = NSButton.alloc().initWithFrame_(NSMakeRect(265, 30, 90, 24))
+        self._sampleBtn = NSButton.alloc().initWithFrame_(NSMakeRect(265, 60, 90, 24))
         self._sampleBtn.setBezelStyle_(NSBezelStyleRounded)
         self._sampleBtn.setTitle_("▶ Sample")
         self._sampleBtn.setFont_(NSFont.systemFontOfSize_(12))
@@ -422,17 +431,32 @@ class AppDelegate(NSObject):
         self._sampleBtn.setAction_("playVoiceSample:")
         self._audiobookPanel.addSubview_(self._sampleBtn)
 
+        # EPUB source label
+        self._audiobookEpubLabel = _label("Źródło: brak (skonwertuj lub wybierz EPUB)", size=11, color=NSColor.secondaryLabelColor())
+        self._audiobookEpubLabel.setFrame_(NSMakeRect(0, 38, CW - 140, 16))
+        self._audiobookPanel.addSubview_(self._audiobookEpubLabel)
+
+        # Pick EPUB button
+        pickEpubBtn = NSButton.alloc().initWithFrame_(NSMakeRect(CW - 130, 34, 128, 24))
+        pickEpubBtn.setBezelStyle_(NSBezelStyleRounded)
+        pickEpubBtn.setTitle_("📂 Wybierz EPUB")
+        pickEpubBtn.setFont_(NSFont.systemFontOfSize_(11))
+        pickEpubBtn.setTarget_(self)
+        pickEpubBtn.setAction_("pickAudiobookEpub:")
+        self._audiobookPanel.addSubview_(pickEpubBtn)
+        self._audiobookPickedEpub = None  # path to manually picked epub
+
         # Generate audiobook button
-        self._audiobookBtn = NSButton.alloc().initWithFrame_(NSMakeRect(0, 2, CW - 2, 24))
+        self._audiobookBtn = NSButton.alloc().initWithFrame_(NSMakeRect(0, 4, CW - 2, 26))
         self._audiobookBtn.setBezelStyle_(NSBezelStyleRounded)
         self._audiobookBtn.setTitle_("🎧 Generuj audiobook")
-        self._audiobookBtn.setFont_(NSFont.systemFontOfSize_weight_(13, 0.0))
+        self._audiobookBtn.setFont_(NSFont.systemFontOfSize_weight_(13, 0.3))
         self._audiobookBtn.setTarget_(self)
         self._audiobookBtn.setAction_("startAudiobook:")
         self._audiobookPanel.addSubview_(self._audiobookBtn)
 
         cv.addSubview_(self._audiobookPanel)
-        top -= 66
+        top -= 94
 
         self._progressBar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(PAD, top - 6, CW, 6))
         self._progressBar.setStyle_(NSProgressIndicatorBarStyle)
@@ -818,7 +842,7 @@ class AppDelegate(NSObject):
         self._convertBtn.setTitle_(t("converting_btn"))
         self._stopBtn.setHidden_(False)
         self._resultView.setHidden_(True)
-        self._audiobookPanel.setHidden_(True)
+        # audiobookPanel is always visible — don't hide it
         self._progressBar.setDoubleValue_(0)
         self._progressBar.setHidden_(False)
         self._stageLabel.setStringValue_(t("starting"))
@@ -855,17 +879,35 @@ class AppDelegate(NSObject):
         tts_engine.generate_sample(voice, _done)
 
     @objc.IBAction
+    def pickAudiobookEpub_(self, sender):
+        """Let user pick any EPUB file for audiobook generation (independent of conversion)."""
+        panel = NSOpenPanel.openPanel()
+        panel.setTitle_("Wybierz plik EPUB")
+        panel.setAllowedFileTypes_(["epub"])
+        panel.setCanChooseDirectories_(False)
+        panel.setAllowsMultipleSelection_(False)
+        if panel.runModal() == NSModalResponseOK:
+            path = str(panel.URLs()[0].path())
+            self._audiobookPickedEpub = path
+            name = Path(path).name
+            self._audiobookEpubLabel.setStringValue_(f"📖 {name}")
+
+    @objc.IBAction
     def startAudiobook_(self, sender):
-        """Generate audiobook from the current output EPUB."""
-        src = getattr(self, '_outputPath', None)
-        if not src or not str(src).endswith('.epub'):
-            # Try selected file if it's already an epub
-            sel = getattr(self, '_selectedFile', None)
-            if sel and str(sel).endswith('.epub'):
-                src = str(sel)
-            else:
-                self._showAlert("Audiobook", "Najpierw skonwertuj plik do formatu EPUB, a następnie wygeneruj audiobook.")
-                return
+        """Generate audiobook from EPUB (picked, converted, or selected)."""
+        # Priority: 1) manually picked EPUB, 2) conversion output, 3) selected file
+        picked = getattr(self, '_audiobookPickedEpub', None)
+        if picked and str(picked).endswith('.epub'):
+            src = str(picked)
+        else:
+            src = getattr(self, '_outputPath', None)
+            if not src or not str(src).endswith('.epub'):
+                sel = getattr(self, '_selectedFile', None)
+                if sel and str(sel).endswith('.epub'):
+                    src = str(sel)
+                else:
+                    self._showAlert("Audiobook", "Wybierz plik EPUB — kliknij '📂 Wybierz EPUB' lub skonwertuj dokument.")
+                    return
 
         idx = self._voicePopup.indexOfSelectedItem()
         voice = self._voiceKeys[idx]
@@ -1032,10 +1074,12 @@ class AppDelegate(NSObject):
         self._stageLabel.setStringValue_(t("done"))
         self._resultView.setHidden_(False)
         self._appendLog(t("all_done", name=Path(output_path).name))
-        # Show audiobook panel only if output is EPUB
+        # Update audiobook panel EPUB source label when conversion produces EPUB
         if str(output_path).endswith('.epub'):
             self._audiobookResultBtn.setHidden_(True)
-            self._audiobookPanel.setHidden_(False)
+            name = Path(output_path).name
+            self._audiobookEpubLabel.setStringValue_(f"📖 {name}")
+            self._audiobookPickedEpub = None  # prefer conversion output
 
     @objc.python_method
     def _conversionCancelled(self, _):
