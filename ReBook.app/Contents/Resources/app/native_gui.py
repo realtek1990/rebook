@@ -12,6 +12,7 @@ import objc
 from AppKit import *
 from Foundation import *
 from i18n import t
+import tts_engine
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 WORKSPACE = Path.home() / ".pdf2epub-app"
@@ -395,6 +396,44 @@ class AppDelegate(NSObject):
         cv.addSubview_(self._stopBtn)
         top -= 52
 
+        # ── Audiobook panel ───────────────────────────────────────────────
+        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 62, CW, 56))
+        self._audiobookPanel.setHidden_(True)
+
+        # Voice popup
+        voice_keys = list(tts_engine.VOICES.keys())
+        voice_labels = list(tts_engine.VOICES.values())
+        voiceLbl = _label("🎙 Głos:", size=12)
+        voiceLbl.setFrame_(NSMakeRect(0, 34, 55, 16))
+        self._audiobookPanel.addSubview_(voiceLbl)
+
+        self._voicePopup = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(58, 30, 200, 24), False)
+        for lbl in voice_labels:
+            self._voicePopup.addItemWithTitle_(lbl)
+        self._audiobookPanel.addSubview_(self._voicePopup)
+        self._voiceKeys = voice_keys
+
+        # Sample play button
+        self._sampleBtn = NSButton.alloc().initWithFrame_(NSMakeRect(265, 30, 90, 24))
+        self._sampleBtn.setBezelStyle_(NSBezelStyleRounded)
+        self._sampleBtn.setTitle_("▶ Sample")
+        self._sampleBtn.setFont_(NSFont.systemFontOfSize_(12))
+        self._sampleBtn.setTarget_(self)
+        self._sampleBtn.setAction_("playVoiceSample:")
+        self._audiobookPanel.addSubview_(self._sampleBtn)
+
+        # Generate audiobook button
+        self._audiobookBtn = NSButton.alloc().initWithFrame_(NSMakeRect(0, 2, CW - 2, 24))
+        self._audiobookBtn.setBezelStyle_(NSBezelStyleRounded)
+        self._audiobookBtn.setTitle_("🎧 Generuj audiobook")
+        self._audiobookBtn.setFont_(NSFont.systemFontOfSize_weight_(13, 0.0))
+        self._audiobookBtn.setTarget_(self)
+        self._audiobookBtn.setAction_("startAudiobook:")
+        self._audiobookPanel.addSubview_(self._audiobookBtn)
+
+        cv.addSubview_(self._audiobookPanel)
+        top -= 66
+
         self._progressBar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(PAD, top - 6, CW, 6))
         self._progressBar.setStyle_(NSProgressIndicatorBarStyle)
         self._progressBar.setIndeterminate_(False)
@@ -442,6 +481,16 @@ class AppDelegate(NSObject):
         self._kindleBtn.setTarget_(self)
         self._kindleBtn.setAction_("sendKindle:")
         self._resultView.addSubview_(self._kindleBtn)
+
+        # Audiobook result button (shown after audiobook generation)
+        self._audiobookResultBtn = NSButton.alloc().initWithFrame_(NSMakeRect(246, 0, 130, 28))
+        self._audiobookResultBtn.setBezelStyle_(NSBezelStyleRounded)
+        self._audiobookResultBtn.setTitle_("📂 Otwórz folder")
+        self._audiobookResultBtn.setTarget_(self)
+        self._audiobookResultBtn.setAction_("openAudiobookFolder:")
+        self._audiobookResultBtn.setHidden_(True)
+        self._resultView.addSubview_(self._audiobookResultBtn)
+
         cv.addSubview_(self._resultView)
 
         self._window.makeKeyAndOrderFront_(None)
@@ -769,6 +818,7 @@ class AppDelegate(NSObject):
         self._convertBtn.setTitle_(t("converting_btn"))
         self._stopBtn.setHidden_(False)
         self._resultView.setHidden_(True)
+        self._audiobookPanel.setHidden_(True)
         self._progressBar.setDoubleValue_(0)
         self._progressBar.setHidden_(False)
         self._stageLabel.setStringValue_(t("starting"))
@@ -786,6 +836,79 @@ class AppDelegate(NSObject):
 
         args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to)
         threading.Thread(target=self._runConversion, args=args, daemon=True).start()
+
+    @objc.IBAction
+    def playVoiceSample_(self, sender):
+        """Preview the selected TTS voice with a short sample."""
+        idx = self._voicePopup.indexOfSelectedItem()
+        voice = self._voiceKeys[idx]
+        self._sampleBtn.setEnabled_(False)
+        self._sampleBtn.setTitle_("⏳")
+
+        def _done(err):
+            def _ui(_):
+                self._sampleBtn.setEnabled_(True)
+                self._sampleBtn.setTitle_("▶ Sample")
+                if err:
+                    self._showAlert("Błąd sampla", err)
+            self._scheduleUI("_noop", _ui)
+        tts_engine.generate_sample(voice, _done)
+
+    @objc.IBAction
+    def startAudiobook_(self, sender):
+        """Generate audiobook from the current output EPUB."""
+        src = getattr(self, '_outputPath', None)
+        if not src or not str(src).endswith('.epub'):
+            # Try selected file if it's already an epub
+            sel = getattr(self, '_selectedFile', None)
+            if sel and str(sel).endswith('.epub'):
+                src = str(sel)
+            else:
+                self._showAlert("Audiobook", "Najpierw skonwertuj plik do formatu EPUB, a następnie wygeneruj audiobook.")
+                return
+
+        idx = self._voicePopup.indexOfSelectedItem()
+        voice = self._voiceKeys[idx]
+        voice_name = list(tts_engine.VOICES.values())[idx]
+
+        src_path = Path(str(src))
+        out_dir = src_path.parent / f"{src_path.stem}_audiobook"
+
+        self._audiobookBtn.setEnabled_(False)
+        self._audiobookBtn.setTitle_("⏳ Generuję…")
+        self._progressBar.setDoubleValue_(0)
+        self._progressBar.setHidden_(False)
+        self._stageLabel.setStringValue_(f"🎙 Audiobook: {voice_name}")
+        self._stageLabel.setHidden_(False)
+        self._logScroll.setHidden_(False)
+        self._appendLog(f"Audiobook: {src_path.name} → {out_dir.name}/")
+        self._audiobookOutputDir = str(out_dir)
+
+        def _progress(cur, total, msg):
+            pct = (cur / total * 100) if total else 0
+            self._scheduleUI("_updateAudiobookProgress", {"pct": pct, "msg": msg})
+
+        def _run():
+            try:
+                paths = tts_engine.generate_audiobook(
+                    epub_path=str(src),
+                    voice=voice,
+                    output_dir=str(out_dir),
+                    progress_cb=_progress,
+                )
+                self._scheduleUI("_audiobookDone", len(paths))
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                self._scheduleUI("_audiobookError", str(e))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    @objc.IBAction
+    def openAudiobookFolder_(self, sender):
+        folder = getattr(self, '_audiobookOutputDir', None)
+        if folder:
+            import subprocess
+            subprocess.Popen(["open", folder])
 
     @objc.IBAction
     def stopConversion_(self, sender):
@@ -870,6 +993,35 @@ class AppDelegate(NSObject):
         self._logText.scrollRangeToVisible_(NSMakeRange(storage.length(), 0))
 
     @objc.python_method
+    def _noop(self, fn):
+        """Utility: run arbitrary callable on main thread."""
+        if callable(fn):
+            fn(None)
+
+    @objc.python_method
+    def _updateAudiobookProgress(self, info):
+        self._progressBar.setDoubleValue_(info["pct"])
+        self._progressBar.displayIfNeeded()
+        self._stageLabel.setStringValue_(info["msg"])
+        self._appendLog(info["msg"])
+
+    @objc.python_method
+    def _audiobookDone(self, count):
+        self._audiobookBtn.setEnabled_(True)
+        self._audiobookBtn.setTitle_("🎧 Generuj audiobook")
+        self._progressBar.setDoubleValue_(100)
+        self._stageLabel.setStringValue_(f"✅ Audiobook gotowy! {count} rozdziałów.")
+        self._audiobookResultBtn.setHidden_(False)
+        self._appendLog(f"✅ Audiobook: {count} plików MP3 + playlist.m3u")
+
+    @objc.python_method
+    def _audiobookError(self, err):
+        self._audiobookBtn.setEnabled_(True)
+        self._audiobookBtn.setTitle_("🎧 Generuj audiobook")
+        self._stageLabel.setStringValue_(f"❌ Błąd: {err[:80]}")
+        self._showAlert("Błąd audiobooka", err)
+
+    @objc.python_method
     def _conversionDone(self, output_path):
         self._outputPath = output_path
         self._converting = False
@@ -880,6 +1032,10 @@ class AppDelegate(NSObject):
         self._stageLabel.setStringValue_(t("done"))
         self._resultView.setHidden_(False)
         self._appendLog(t("all_done", name=Path(output_path).name))
+        # Show audiobook panel only if output is EPUB
+        if str(output_path).endswith('.epub'):
+            self._audiobookResultBtn.setHidden_(True)
+            self._audiobookPanel.setHidden_(False)
 
     @objc.python_method
     def _conversionCancelled(self, _):
