@@ -233,7 +233,12 @@ async def _generate_chapter_async(text: str, voice: str, output_path: str):
     try:
         import edge_tts
     except ImportError:
-        raise RuntimeError("edge-tts nie jest zainstalowany. Uruchom: pip install edge-tts")
+        import subprocess, sys
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "edge-tts"],
+            check=True, capture_output=True
+        )
+        import edge_tts
 
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(output_path)

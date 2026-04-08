@@ -5,6 +5,7 @@ beautifulsoup4
 markdownify
 litellm
 PyMuPDF
+edge-tts
 
 # ─── Image Translation (Nano Banana 2 / Gemini) ───
 google-genai

@@ -7,6 +7,13 @@ import json, os, sys, shutil, smtplib, subprocess, threading, queue
 from pathlib import Path
 from email.message import EmailMessage
 
+# tts_engine is bundled alongside this script
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    import tts_engine
+except Exception:
+    tts_engine = None
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 WORKSPACE = Path.home() / ".rebook"
 VENV_DIR = WORKSPACE / "env"
@@ -472,6 +479,61 @@ class ReBookApp:
                       height=36, fg_color="#2d6a4f").pack(side="left", padx=4)
         ctk.CTkButton(btn_row, text=t("kindle_btn"), command=self._send_kindle,
                       height=36, fg_color="gray50").pack(side="left", padx=4)
+
+        # ── Audiobook panel (shown after EPUB conversion) ──────────────────────────────
+        self._audiobook_frame = ctk.CTkFrame(self._result_frame, fg_color="transparent")
+
+        ctk.CTkLabel(self._audiobook_frame, text="─" * 40,
+                     text_color=("gray60", "gray50")).pack(pady=(4, 0))
+        ctk.CTkLabel(self._audiobook_frame, text="🎧 Audiobook",
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(pady=(4, 2))
+
+        voice_row = ctk.CTkFrame(self._audiobook_frame, fg_color="transparent")
+        voice_row.pack(fill="x", padx=16, pady=4)
+
+        if tts_engine:
+            self._voice_keys = list(tts_engine.VOICES.keys())
+            voice_labels = list(tts_engine.VOICES.values())
+        else:
+            self._voice_keys = ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"]
+            voice_labels = ["Marek (PL, Męski)", "Zofia (PL, żeński)"]
+
+        import tkinter as tk
+        self._voice_var = tk.StringVar(value=voice_labels[0])
+        self._voice_combo = ctk.CTkOptionMenu(
+            voice_row, variable=self._voice_var,
+            values=voice_labels, width=220,
+            command=lambda _: None
+        )
+        self._voice_combo.pack(side="left", padx=(0, 6))
+
+        self._sample_btn = ctk.CTkButton(
+            voice_row, text="▶ Sample", width=90, height=30,
+            command=self._play_tts_sample, fg_color="#4a6fa5"
+        )
+        self._sample_btn.pack(side="left")
+
+        self._audiobook_btn = ctk.CTkButton(
+            self._audiobook_frame, text="🎧 Generuj audiobook",
+            height=36, font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._generate_audiobook,
+            fg_color="#6a4c93", hover_color="#7d5aad"
+        )
+        self._audiobook_btn.pack(fill="x", padx=16, pady=(4, 2))
+
+        self._audiobook_status = ctk.CTkLabel(
+            self._audiobook_frame, text="", font=ctk.CTkFont(size=11),
+            text_color=("gray50", "gray70")
+        )
+        self._audiobook_status.pack(pady=2)
+
+        self._audiobook_folder_btn = ctk.CTkButton(
+            self._audiobook_frame, text="📂 Otwórz folder z audiobokiem",
+            height=32, command=self._open_audiobook_folder,
+            fg_color="#2d6a4f"
+        )
+        # Hidden until generation completes
+        self._audiobook_output_dir = None
 
     # ── File handling ──
 
@@ -963,6 +1025,95 @@ class ReBookApp:
         self._log_box.pack_forget()  # hide log to make room for result
         self._result_frame.pack(fill="x", padx=24, pady=8)
         self._append_log(t("all_done", name=Path(output_path).name))
+        # Show audiobook panel only for EPUB output
+        if str(output_path).endswith('.epub') and tts_engine:
+            self._audiobook_status.configure(text="")
+            self._audiobook_folder_btn.pack_forget()
+            self._audiobook_frame.pack(fill="x", padx=8, pady=(4, 8))
+        else:
+            self._audiobook_frame.pack_forget()
+
+    def _play_tts_sample(self):
+        if not tts_engine:
+            return
+        self._sample_btn.configure(text="⏳", state="disabled")
+        voice_label = self._voice_var.get()
+        voice_labels = list(tts_engine.VOICES.values())
+        idx = voice_labels.index(voice_label) if voice_label in voice_labels else 0
+        voice = self._voice_keys[idx]
+
+        def _done(err):
+            self.root.after(0, lambda: self._sample_btn.configure(text="▶ Sample", state="normal"))
+            if err:
+                self.root.after(0, lambda: self._audiobook_status.configure(
+                    text=f"❌ {err[:60]}", text_color="red"))
+        tts_engine.generate_sample(voice, _done)
+
+    def _generate_audiobook(self):
+        if not tts_engine:
+            return
+        src = getattr(self, '_output_path', None)
+        if not src or not str(src).endswith('.epub'):
+            sel = getattr(self, '_selected_file', None)
+            if sel and str(sel).endswith('.epub'):
+                src = sel
+            else:
+                self._audiobook_status.configure(
+                    text="❌ Najpierw skonwertuj plik do EPUB", text_color="red")
+                return
+
+        voice_label = self._voice_var.get()
+        voice_labels = list(tts_engine.VOICES.values())
+        idx = voice_labels.index(voice_label) if voice_label in voice_labels else 0
+        voice = self._voice_keys[idx]
+
+        src_path = Path(str(src))
+        out_dir = src_path.parent / f"{src_path.stem}_audiobook"
+        self._audiobook_output_dir = str(out_dir)
+
+        self._audiobook_btn.configure(state="disabled", text="⏳ Generuję…")
+        self._audiobook_status.configure(text="Generowanie…", text_color=("gray50", "gray70"))
+        self._audiobook_folder_btn.pack_forget()
+
+        def _progress(cur, total, msg):
+            self.root.after(0, lambda: self._audiobook_status.configure(text=msg))
+
+        def _run():
+            try:
+                paths = tts_engine.generate_audiobook(
+                    epub_path=str(src),
+                    voice=voice,
+                    output_dir=str(out_dir),
+                    progress_cb=_progress,
+                )
+                self.root.after(0, lambda: self._audiobook_done(len(paths)))
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                self.root.after(0, lambda: self._audiobook_error(str(e)))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _audiobook_done(self, count):
+        self._audiobook_btn.configure(state="normal", text="🎧 Generuj audiobook")
+        self._audiobook_status.configure(
+            text=f"✅ Gotowe! {count} rozdziałów MP3 + playlist.m3u",
+            text_color=("#2d8f2d", "#5dce5d")
+        )
+        self._audiobook_folder_btn.pack(fill="x", padx=16, pady=(2, 8))
+
+    def _audiobook_error(self, err):
+        self._audiobook_btn.configure(state="normal", text="🎧 Generuj audiobook")
+        self._audiobook_status.configure(
+            text=f"❌ {err[:80]}", text_color="red")
+
+    def _open_audiobook_folder(self):
+        folder = self._audiobook_output_dir
+        if folder and Path(folder).exists():
+            if sys.platform == "win32":
+                os.startfile(folder)
+            else:
+                subprocess.Popen(["xdg-open", folder])
+
 
     def _conversion_cancelled(self):
         self._converting = False

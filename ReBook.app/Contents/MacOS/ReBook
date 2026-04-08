@@ -78,6 +78,7 @@ CORE_PACKAGES = [
     "litellm", "markdown", "ebooklib", "pymupdf",
     "beautifulsoup4", "markdownify",
     "google-genai", "Pillow",
+    "edge-tts",
 ]
 
 MARKER_PACKAGES = [

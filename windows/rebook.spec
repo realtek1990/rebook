@@ -13,6 +13,12 @@ try:
 except Exception:
     dnd_datas, dnd_binaries, dnd_hiddenimports = [], [], []
 
+# Collect edge_tts (includes all submodules)
+try:
+    tts_datas, tts_binaries, tts_hiddenimports = collect_all('edge_tts')
+except Exception:
+    tts_datas, tts_binaries, tts_hiddenimports = [], [], []
+
 a = Analysis(
     [os.path.join(APP_DIR, 'rebook_win.py')],
     pathex=[APP_DIR],
@@ -23,9 +29,10 @@ a = Analysis(
         (os.path.join(APP_DIR, 'converter.py'), '.'),
         (os.path.join(APP_DIR, 'corrector.py'), '.'),
         (os.path.join(APP_DIR, 'manual_convert.py'), '.'),
+        (os.path.join(APP_DIR, 'tts_engine.py'), '.'),
         (os.path.join(APP_DIR, 'requirements.txt'), '.'),
         (os.path.join(APP_DIR, 'icon.ico'), '.'),
-    ],
+    ] + tts_datas + dnd_datas,
     hiddenimports=[
         'customtkinter',
         'tkinter',
@@ -34,7 +41,13 @@ a = Analysis(
         'queue',
         'smtplib',
         'email',
-    ] + dnd_hiddenimports,
+        'edge_tts',
+        'edge_tts.communicate',
+        'edge_tts.list_voices',
+        'edge_tts.exceptions',
+        'aiohttp',
+        'asyncio',
+    ] + dnd_hiddenimports + tts_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
