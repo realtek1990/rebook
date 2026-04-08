@@ -201,7 +201,61 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(4.dp))
+
+            // ── Pipeline ─────────────────────────────────────────────────────
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                ),
+            ) {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "🔗 Auto-audiobook po konwersji",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = state.pipelineAutoAudiobook,
+                            onCheckedChange = { viewModel.setPipelineAutoAudiobook(it) },
+                        )
+                    }
+                    AnimatedVisibility(visible = state.pipelineAutoAudiobook) {
+                        val voices = remember {
+                            listOf(
+                                "pl-PL-MarekNeural" to "Marek (PL, Męski)",
+                                "pl-PL-ZofiaNeural" to "Zofia (PL, Żeński)",
+                            )
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Głos:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            voices.forEach { (key, label) ->
+                                FilterChip(
+                                    selected = state.pipelineAudiobookVoice == key,
+                                    onClick = { viewModel.setPipelineAudiobookVoice(key) },
+                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
 
             // ── Convert + Stop Buttons ──
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

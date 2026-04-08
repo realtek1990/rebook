@@ -441,6 +441,39 @@ class ReBookApp:
         self._lang_to.set("polski")
         self._lang_to.pack(side="left", fill="x", expand=True)
 
+        # ── Pipeline — krok Audiobook ──────────────────────────────────────────
+        ctk.CTkLabel(f, text="🔗 Pipeline — opcjonalne kroki:",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=("#1a5276", "#90B0D0")).pack(anchor="w", padx=28, pady=(14, 2))
+
+        self._pipeline_audiobook_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            f, text="🎧 Po konwersji → generuj Audiobook automatycznie",
+            variable=self._pipeline_audiobook_var,
+            text_color=("gray10", "gray90"),
+            command=self._on_pipeline_audiobook_toggle,
+        ).pack(anchor="w", padx=28, pady=2)
+
+        # Voice for pipeline audiobook
+        self._pipeline_voice_frame = ctk.CTkFrame(f, fg_color="transparent")
+        pvr = ctk.CTkFrame(self._pipeline_voice_frame, fg_color="transparent")
+        pvr.pack(fill="x", padx=44, pady=2)
+        ctk.CTkLabel(pvr, text="Głos:", font=ctk.CTkFont(size=11),
+                     text_color=("gray30", "gray70"), width=50).pack(side="left")
+        if tts_engine:
+            _pipeline_voice_labels = list(tts_engine.VOICES.values())
+            _pipeline_voice_keys   = list(tts_engine.VOICES.keys())
+        else:
+            _pipeline_voice_labels = ["Marek (PL, Męski)", "Zofia (PL, Żeński)"]
+            _pipeline_voice_keys   = ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"]
+        self._pipeline_voice_keys   = _pipeline_voice_keys
+        import tkinter as _tk
+        self._pipeline_voice_var = _tk.StringVar(value=_pipeline_voice_labels[0])
+        ctk.CTkOptionMenu(
+            pvr, variable=self._pipeline_voice_var,
+            values=_pipeline_voice_labels, width=200,
+        ).pack(side="left", padx=4)
+
         # Convert + Stop buttons
         btn_frame = ctk.CTkFrame(f, fg_color="transparent")
         btn_frame.pack(fill="x", padx=24, pady=(16, 4))
@@ -613,6 +646,12 @@ class ReBookApp:
             self._verify_check.pack_forget()
             self._translate_img_var.set(False)
             self._verify_var.set(False)
+
+    def _on_pipeline_audiobook_toggle(self):
+        if self._pipeline_audiobook_var.get():
+            self._pipeline_voice_frame.pack(fill="x", padx=28, pady=(0, 4))
+        else:
+            self._pipeline_voice_frame.pack_forget()
 
     # ── Settings ──
 
@@ -1051,6 +1090,20 @@ class ReBookApp:
             self._audiobook_status.configure(text="")
             self._audiobook_folder_btn.pack_forget()
         # Panel is always visible — no pack/pack_forget needed
+
+        # ── Pipeline: auto-generate audiobook if checkbox is set ─────────────
+        if (str(output_path).endswith('.epub')
+                and tts_engine
+                and self._pipeline_audiobook_var.get()):
+            self._append_log("🔗 Pipeline: uruchamiam generowanie audiobooka…")
+            # Set the pipeline voice as the audiobook voice and kick off
+            voice_label = self._pipeline_voice_var.get()
+            voice_labels = list(tts_engine.VOICES.values())
+            idx = voice_labels.index(voice_label) if voice_label in voice_labels else 0
+            # Set voice in the audiobook panel selector too (for consistency)
+            self._voice_var.set(voice_label)
+            # Auto-trigger after short delay so UI can update
+            self.root.after(500, self._generate_audiobook)
 
     def _pick_audiobook_epub(self):
         """Let user pick any EPUB file for audiobook generation."""

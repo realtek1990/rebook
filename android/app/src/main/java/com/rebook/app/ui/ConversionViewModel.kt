@@ -44,6 +44,9 @@ data class ConversionState(
     // Directly-picked EPUB for audiobook (independent of conversion output)
     val audiobookEpubUri: Uri? = null,
     val audiobookEpubName: String = "",
+    // ── Pipeline ─────────────────────────────────────────────────────
+    val pipelineAutoAudiobook: Boolean = false,   // auto-generate audiobook after conversion
+    val pipelineAudiobookVoice: String = "pl-PL-MarekNeural",
 )
 
 class ConversionViewModel(application: Application) : AndroidViewModel(application) {
@@ -85,6 +88,9 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     fun setLangFrom(v: String) { _state.update { it.copy(langFrom = v) } }
     fun setLangTo(v: String) { _state.update { it.copy(langTo = v) } }
     fun setVerify(v: Boolean) { _state.update { it.copy(verify = v) } }
+    // Pipeline
+    fun setPipelineAutoAudiobook(v: Boolean) { _state.update { it.copy(pipelineAutoAudiobook = v) } }
+    fun setPipelineAudiobookVoice(v: String) { _state.update { it.copy(pipelineAudiobookVoice = v, ttsVoice = v) } }
 
     fun saveConfig(config: AppConfig) {
         viewModelScope.launch { configStore.save(config) }
@@ -150,6 +156,12 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                         progressPercent = 1f,
                         progressMessage = "✅ Gotowe!",
                     )
+                }
+                // ── Pipeline auto-audiobook ───────────────────────────────────
+                if (_state.value.pipelineAutoAudiobook && result.endsWith(".epub")) {
+                    // Set pipeline voice and trigger audiobook generation
+                    _state.update { it.copy(ttsVoice = it.pipelineAudiobookVoice) }
+                    startAudiobook()
                 }
             } catch (e: InterruptedException) {
                 _state.update {
