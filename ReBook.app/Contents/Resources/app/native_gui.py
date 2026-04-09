@@ -1008,13 +1008,14 @@ class AppDelegate(NSObject):
         container.addSubview_(scroll)
 
         # Wire toggle to all checkboxes
-        class ToggleHandler:
-            @staticmethod
-            def toggle_all():
-                state = toggle.state()
+        class ToggleTarget(NSObject):
+            def toggleAll_(self, sender):
+                state = sender.state()
                 for cb in checkboxes:
                     cb.setState_(state)
-        toggle.setTarget_(None)  # simple approach: user manually toggles
+        toggle_target = ToggleTarget.alloc().init()
+        toggle.setTarget_(toggle_target)
+        toggle.setAction_(objc.selector(toggle_target.toggleAll_, signature=b'v@:@'))
 
         alert.setAccessoryView_(container)
 
