@@ -65,9 +65,13 @@ fi
 echo "→ Kopiuję do /Applications..."
 cp -R "$APP_SRC" "$APP_DST"
 
-# Strip quarantine flag (the key fix for Gatekeeper)
-echo "→ Wyłączam blokadę Gatekeeper..."
-xattr -dr com.apple.quarantine "$APP_DST" 2>/dev/null || true
+# Strip ALL extended attributes (quarantine, translocation, etc.)
+echo "→ Usuwam blokady macOS..."
+xattr -cr "$APP_DST" 2>/dev/null || true
+
+# Ad-hoc code signing — the real fix for Gatekeeper on modern macOS
+echo "→ Podpisuję aplikację (ad-hoc)..."
+codesign --force --deep --sign - "$APP_DST" 2>/dev/null || true
 
 echo ""
 echo "╔══════════════════════════════════════════════╗"
