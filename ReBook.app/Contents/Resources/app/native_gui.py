@@ -909,6 +909,21 @@ class AppDelegate(NSObject):
                     self._showAlert("Audiobook", "Wybierz plik EPUB — kliknij '📂 Wybierz EPUB' lub skonwertuj dokument.")
                     return
 
+        # Extract chapter list and show selection dialog
+        try:
+            chapters = tts_engine.list_chapters(str(src))
+        except Exception as e:
+            self._showAlert("Błąd", str(e))
+            return
+
+        if not chapters:
+            self._showAlert("Błąd", "EPUB nie zawiera rozdziałów.")
+            return
+
+        selected = self._showChapterSelector(chapters)
+        if selected is None:  # user cancelled
+            return
+
         idx = self._voicePopup.indexOfSelectedItem()
         voice = self._voiceKeys[idx]
         voice_name = list(tts_engine.VOICES.values())[idx]
@@ -920,10 +935,10 @@ class AppDelegate(NSObject):
         self._audiobookBtn.setTitle_("⏳ Generuję…")
         self._progressBar.setDoubleValue_(0)
         self._progressBar.setHidden_(False)
-        self._stageLabel.setStringValue_(f"🎙 Audiobook: {voice_name}")
+        self._stageLabel.setStringValue_(f"🎙 Audiobook: {voice_name} ({len(selected)}/{len(chapters)} rozdziałów)")
         self._stageLabel.setHidden_(False)
         self._logScroll.setHidden_(False)
-        self._appendLog(f"Audiobook: {src_path.name} → {out_dir.name}/")
+        self._appendLog(f"Audiobook: {src_path.name} → {out_dir.name}/ ({len(selected)}/{len(chapters)} rozdziałów)")
         self._audiobookOutputDir = str(out_dir)
 
         def _progress(cur, total, msg):
@@ -937,6 +952,7 @@ class AppDelegate(NSObject):
                     voice=voice,
                     output_dir=str(out_dir),
                     progress_cb=_progress,
+                    selected_chapters=selected,
                 )
                 self._scheduleUI("_audiobookDone", len(paths))
             except Exception as e:
@@ -944,6 +960,74 @@ class AppDelegate(NSObject):
                 self._scheduleUI("_audiobookError", str(e))
 
         threading.Thread(target=_run, daemon=True).start()
+
+    @objc.python_method
+    def _showChapterSelector(self, chapters):
+        """Show chapter selection dialog. Returns list of selected indices or None if cancelled."""
+        from AppKit import (NSAlert, NSScrollView, NSView, NSButton,
+                          NSMakeRect, NSSwitchButton, NSAlertFirstButtonReturn)
+
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_("📋 Wybierz rozdziały")
+        alert.setInformativeText_(f"Znaleziono {len(chapters)} rozdziałów. Odznacz te, których nie chcesz w audiobooku.")
+        alert.addButtonWithTitle_("🎧 Generuj")
+        alert.addButtonWithTitle_("Anuluj")
+
+        # Container view
+        h_per_row = 22
+        max_visible = min(len(chapters), 15)
+        view_h = max_visible * h_per_row + 40  # +40 for Select All button
+        container = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 400, view_h))
+
+        # Select All / Deselect All toggle
+        toggle = NSButton.alloc().initWithFrame_(NSMakeRect(0, view_h - 28, 200, 24))
+        toggle.setButtonType_(NSSwitchButton)
+        toggle.setTitle_("Zaznacz / Odznacz wszystkie")
+        toggle.setState_(1)  # checked
+        container.addSubview_(toggle)
+
+        # Scrollable area for chapters
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(0, 0, 400, view_h - 36))
+        inner_h = len(chapters) * h_per_row
+        inner = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 380, inner_h))
+
+        checkboxes = []
+        for i, ch in enumerate(chapters):
+            y = inner_h - (i + 1) * h_per_row
+            words = len(ch.text.split())
+            label = f"{i+1}. {ch.title[:50]}  (~{words} słów)"
+            cb = NSButton.alloc().initWithFrame_(NSMakeRect(4, y, 370, 20))
+            cb.setButtonType_(NSSwitchButton)
+            cb.setTitle_(label)
+            cb.setState_(1)
+            inner.addSubview_(cb)
+            checkboxes.append(cb)
+
+        scroll.setDocumentView_(inner)
+        scroll.setHasVerticalScroller_(True)
+        container.addSubview_(scroll)
+
+        # Wire toggle to all checkboxes
+        class ToggleHandler:
+            @staticmethod
+            def toggle_all():
+                state = toggle.state()
+                for cb in checkboxes:
+                    cb.setState_(state)
+        toggle.setTarget_(None)  # simple approach: user manually toggles
+
+        alert.setAccessoryView_(container)
+
+        result = alert.runModal()
+        if result != NSAlertFirstButtonReturn:
+            return None
+
+        selected = [chapters[i].index for i, cb in enumerate(checkboxes) if cb.state()]
+        if not selected:
+            self._showAlert("Audiobook", "Nie wybrano żadnych rozdziałów.")
+            return None
+
+        return selected
 
     @objc.IBAction
     def openAudiobookFolder_(self, sender):

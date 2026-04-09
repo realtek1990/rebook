@@ -480,12 +480,150 @@ fun HomeScreen(
                 ),
             ) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(
-                        "🎧 Audiobook",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                    Spacer(Modifier.height(8.dp))
+                    var showAudiobookInfo by remember { mutableStateOf(false) }
+
+                    if (showAudiobookInfo) {
+                        AlertDialog(
+                            onDismissRequest = { showAudiobookInfo = false },
+                            title = { Text("🎧 O Audiobooku") },
+                            text = {
+                                Text(
+                                    "ReBook generuje audiobooki za darmo, używając Microsoft Edge TTS.\n\n" +
+                                    "⏱️ Czas generowania: ~8x wolniej niż czas trwania audiobooka.\n" +
+                                    "Przykład: 1h audiobooka = ~8 min generowania.\n\n" +
+                                    "Jest to cena za w pełni darmowe generowanie — bez klucza API, bez limitu znaków, bez opłat.\n\n" +
+                                    "💡 Wskazówki:\n" +
+                                    "• Możesz wybrać dowolny plik EPUB jako źródło\n" +
+                                    "• Dostępne głosy: polski, angielski, niemiecki i inne\n" +
+                                    "• Pliki MP3 zapisują się w folderze obok EPUB\n" +
+                                    "• Każdy rozdział = osobny plik MP3"
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { showAudiobookInfo = false }) {
+                                    Text("OK")
+                                }
+                            },
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "🎧 Audiobook",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        TextButton(onClick = { showAudiobookInfo = true }) {
+                            Text(
+                                "ℹ️ Jak to działa?",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+
+                    // ── Chapter selector dialog ──────────────────────────
+                    if (state.showChapterSelector && state.audiobookChapters.isNotEmpty()) {
+                        AlertDialog(
+                            onDismissRequest = { viewModel.dismissChapterSelector() },
+                            title = { Text("📋 Wybierz rozdziały") },
+                            text = {
+                                Column {
+                                    Text(
+                                        "Znaleziono ${state.audiobookChapters.size} rozdziałów. " +
+                                        "Odznacz te, których nie chcesz w audiobooku.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+
+                                    // Select all toggle
+                                    val allSelected = state.selectedChapterIndices.size == state.audiobookChapters.size
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.clickable {
+                                            if (allSelected) {
+                                                viewModel.setSelectedChapters(emptySet())
+                                            } else {
+                                                viewModel.setSelectedChapters(
+                                                    state.audiobookChapters.map { it.index }.toSet()
+                                                )
+                                            }
+                                        }
+                                    ) {
+                                        Checkbox(
+                                            checked = allSelected,
+                                            onCheckedChange = null,
+                                        )
+                                        Text(
+                                            "Zaznacz wszystkie",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        )
+                                    }
+
+                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                    // Scrollable chapter list
+                                    Column(
+                                        modifier = Modifier
+                                            .heightIn(max = 350.dp)
+                                            .verticalScroll(rememberScrollState())
+                                    ) {
+                                        state.audiobookChapters.forEach { ch ->
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        val newSet = state.selectedChapterIndices.toMutableSet()
+                                                        if (ch.index in newSet) newSet.remove(ch.index)
+                                                        else newSet.add(ch.index)
+                                                        viewModel.setSelectedChapters(newSet)
+                                                    }
+                                                    .padding(vertical = 2.dp)
+                                            ) {
+                                                Checkbox(
+                                                    checked = ch.index in state.selectedChapterIndices,
+                                                    onCheckedChange = null,
+                                                )
+                                                Text(
+                                                    "${ch.index + 1}. ${ch.title}  (~${ch.wordCount} słów)",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "Zaznaczono: ${state.selectedChapterIndices.size}/${state.audiobookChapters.size}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = { viewModel.confirmChapterSelection() },
+                                    enabled = state.selectedChapterIndices.isNotEmpty(),
+                                ) {
+                                    Text("🎧 Generuj (${state.selectedChapterIndices.size})")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { viewModel.dismissChapterSelector() }) {
+                                    Text("Anuluj")
+                                }
+                            },
+                        )
+                    }
+
+                    Spacer(Modifier.height(4.dp))
 
                     // EPUB source indicator + picker
                     val epubLabel = when {

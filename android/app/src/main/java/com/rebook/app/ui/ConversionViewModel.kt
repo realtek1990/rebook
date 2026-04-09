@@ -45,10 +45,16 @@ data class ConversionState(
     val audiobookEpubUri: Uri? = null,
     val audiobookEpubName: String = "",
     val audiobookProgressPercent: Float = -1f,  // -1 = indeterminate, 0..1 = progress
+    // ── Chapter selection ─────────────────────────────────────────────
+    val audiobookChapters: List<ChapterInfo> = emptyList(),
+    val selectedChapterIndices: Set<Int> = emptySet(),
+    val showChapterSelector: Boolean = false,
     // ── Pipeline ─────────────────────────────────────────────────────
     val pipelineAutoAudiobook: Boolean = false,   // auto-generate audiobook after conversion
     val pipelineAudiobookVoice: String = "pl-PL-MarekNeural",
 )
+
+data class ChapterInfo(val index: Int, val title: String, val wordCount: Int)
 
 class ConversionViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -248,10 +254,37 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun startAudiobook() {
-        if (_state.value.isGeneratingAudiobook) return
+    fun loadChapters() {
+        val epubFile = resolveAudiobookEpub() ?: return
+        viewModelScope.launch {
+            try {
+                val chapters = extractEpubChapters(epubFile)
+                _state.update { it.copy(
+                    audiobookChapters = chapters,
+                    selectedChapterIndices = chapters.map { c -> c.index }.toSet(),
+                    showChapterSelector = true,
+                ) }
+            } catch (e: Exception) {
+                _state.update { it.copy(audiobookError = e.message) }
+            }
+        }
+    }
 
-        // Priority: 1) explicitly picked EPUB, 2) conversion output, 3) loaded input EPUB
+    fun setSelectedChapters(indices: Set<Int>) {
+        _state.update { it.copy(selectedChapterIndices = indices) }
+    }
+
+    fun dismissChapterSelector() {
+        _state.update { it.copy(showChapterSelector = false) }
+    }
+
+    fun confirmChapterSelection() {
+        _state.update { it.copy(showChapterSelector = false) }
+        startAudiobookWithSelection()
+    }
+
+    private fun resolveAudiobookEpub(): File? {
+        val app = getApplication<android.app.Application>()
         val explicitUri = _state.value.audiobookEpubUri
         val epubPath: String? = if (explicitUri == null)
             _state.value.outputPath?.takeIf { it.endsWith(".epub") } else null
@@ -260,12 +293,40 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                 _state.value.selectedFileName.endsWith(".epub", ignoreCase = true))
                 _state.value.selectedFileUri else null
 
-        if (epubPath == null && epubUri == null) return
+        if (epubPath == null && epubUri == null) return null
+
+        return if (epubPath != null) {
+            File(epubPath)
+        } else {
+            val tmp = File(app.cacheDir,
+                _state.value.selectedFileName.ifBlank { "input.epub" })
+            app.contentResolver
+                .openInputStream(epubUri!!)?.use { ins ->
+                    tmp.outputStream().use { ins.copyTo(it) }
+                }
+            tmp
+        }
+    }
+
+    fun startAudiobook() {
+        if (_state.value.isGeneratingAudiobook) return
+        // Show chapter selector first
+        loadChapters()
+    }
+
+    private fun startAudiobookWithSelection() {
+        if (_state.value.isGeneratingAudiobook) return
+
+        val epubFile = resolveAudiobookEpub() ?: return
+        val selectedIndices = _state.value.selectedChapterIndices
+        if (selectedIndices.isEmpty()) return
+
+        val totalChapters = _state.value.audiobookChapters.size
 
         _state.update {
             it.copy(
                 isGeneratingAudiobook = true,
-                audiobookProgress = "📖 Czytam EPUB…",
+                audiobookProgress = "📖 Czytam EPUB… (${selectedIndices.size}/$totalChapters rozdziałów)",
                 audiobookProgressPercent = -1f,
                 audiobookOutputDir = null,
                 audiobookError = null,
@@ -277,18 +338,6 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
 
         audiobookJob = viewModelScope.launch {
             try {
-                val epubFile: File = if (epubPath != null) {
-                    File(epubPath)
-                } else {
-                    val tmp = File(app.cacheDir,
-                        _state.value.selectedFileName.ifBlank { "input.epub" })
-                    app.contentResolver
-                        .openInputStream(epubUri!!)?.use { ins ->
-                            tmp.outputStream().use { ins.copyTo(it) }
-                        }
-                    tmp
-                }
-
                 val cacheDir = File(app.cacheDir, "${epubFile.nameWithoutExtension}_audiobook")
                 cacheDir.mkdirs()
 
@@ -296,7 +345,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     audiobookProgress = "📝 Wyciągam tekst z EPUB…",
                     audiobookProgressPercent = 0.02f,
                 ) }
-                val text = extractEpubText(epubFile)
+                val text = extractEpubChapterTexts(epubFile, selectedIndices)
 
                 val files = ttsEngine.generateAudiobook(
                     text = text,
@@ -384,17 +433,69 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                 .sortedBy { it.name }
                 .forEach { entry ->
                     val html = zip.getInputStream(entry).bufferedReader().readText()
-                    // Basic HTML strip
-                    val text = html
-                        .replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), "")
-                        .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), "")
-                        .replace(Regex("<[^>]+>"), " ")
-                        .replace(Regex("\\s{2,}"), " ")
-                        .trim()
+                    val text = stripHtml(html)
                     if (text.length > 50) sb.append(text).append("\n\n")
                 }
         }
         return sb.toString()
+    }
+
+    /** Extract chapter list with metadata for chapter selector UI */
+    private fun extractEpubChapters(epubFile: File): List<ChapterInfo> {
+        val chapters = mutableListOf<ChapterInfo>()
+        java.util.zip.ZipFile(epubFile).use { zip ->
+            val htmlFiles = zip.entries().asSequence()
+                .filter { !it.isDirectory && (it.name.endsWith(".xhtml") || it.name.endsWith(".html")) }
+                .filter { !it.name.contains("nav", ignoreCase = true) }
+                .sortedBy { it.name }
+                .toList()
+
+            for ((idx, entry) in htmlFiles.withIndex()) {
+                val html = zip.getInputStream(entry).bufferedReader().readText()
+                // Extract title from h1/h2
+                val titleMatch = Regex("<h[12][^>]*>(.*?)</h[12]>", RegexOption.IGNORE_CASE)
+                    .find(html)
+                val title = titleMatch?.groupValues?.get(1)
+                    ?.replace(Regex("<[^>]+>"), "")
+                    ?.trim()
+                    ?.take(60)
+                    ?: "Część ${idx + 1}"
+                val text = stripHtml(html)
+                if (text.length > 50) {
+                    chapters.add(ChapterInfo(idx, title, text.split("\\s+".toRegex()).size))
+                }
+            }
+        }
+        return chapters
+    }
+
+    /** Extract text only from selected chapter indices */
+    private fun extractEpubChapterTexts(epubFile: File, selectedIndices: Set<Int>): String {
+        val sb = StringBuilder()
+        java.util.zip.ZipFile(epubFile).use { zip ->
+            val htmlFiles = zip.entries().asSequence()
+                .filter { !it.isDirectory && (it.name.endsWith(".xhtml") || it.name.endsWith(".html")) }
+                .filter { !it.name.contains("nav", ignoreCase = true) }
+                .sortedBy { it.name }
+                .toList()
+
+            for ((idx, entry) in htmlFiles.withIndex()) {
+                if (idx !in selectedIndices) continue
+                val html = zip.getInputStream(entry).bufferedReader().readText()
+                val text = stripHtml(html)
+                if (text.length > 50) sb.append(text).append("\n\n")
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun stripHtml(html: String): String {
+        return html
+            .replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("<[^>]+>"), " ")
+            .replace(Regex("\\s{2,}"), " ")
+            .trim()
     }
 
     private fun mapStageProgress(stage: String, pct: Int): Float {

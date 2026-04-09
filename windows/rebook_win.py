@@ -1154,6 +1154,20 @@ class ReBookApp:
                     text="❌ Najpierw skonwertuj plik do EPUB", text_color="red")
                 return
 
+        # Extract chapters and show selection dialog
+        try:
+            chapters = tts_engine.list_chapters(str(src))
+        except Exception as e:
+            self._audiobook_status.configure(text=f"❌ {str(e)[:80]}", text_color="red")
+            return
+        if not chapters:
+            self._audiobook_status.configure(text="❌ EPUB nie zawiera rozdziałów", text_color="red")
+            return
+
+        selected = self._show_chapter_selector(chapters)
+        if selected is None:  # user cancelled
+            return
+
         voice_label = self._voice_var.get()
         voice_labels = list(tts_engine.VOICES.values())
         idx = voice_labels.index(voice_label) if voice_label in voice_labels else 0
@@ -1164,7 +1178,9 @@ class ReBookApp:
         self._audiobook_output_dir = str(out_dir)
 
         self._audiobook_btn.configure(state="disabled", text="⏳ Generuję…")
-        self._audiobook_status.configure(text="Generowanie…", text_color=("gray50", "gray70"))
+        self._audiobook_status.configure(
+            text=f"Generowanie {len(selected)}/{len(chapters)} rozdziałów…",
+            text_color=("gray50", "gray70"))
         self._audiobook_folder_btn.pack_forget()
 
         def _progress(cur, total, msg):
@@ -1177,6 +1193,7 @@ class ReBookApp:
                     voice=voice,
                     output_dir=str(out_dir),
                     progress_cb=_progress,
+                    selected_chapters=selected,
                 )
                 self.root.after(0, lambda: self._audiobook_done(len(paths)))
             except Exception as e:
@@ -1184,6 +1201,69 @@ class ReBookApp:
                 self.root.after(0, lambda: self._audiobook_error(str(e)))
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def _show_chapter_selector(self, chapters):
+        """Show chapter selection dialog. Returns list of selected indices or None."""
+        result = [None]  # mutable for closure
+
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("📋 Wybierz rozdziały")
+        dialog.geometry("460x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(True, True)
+
+        ctk.CTkLabel(dialog, text=f"Znaleziono {len(chapters)} rozdziałów:",
+                     font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(12, 4))
+
+        # Select all / deselect all
+        all_var = ctk.BooleanVar(value=True)
+        check_vars = []
+
+        def toggle_all():
+            state = all_var.get()
+            for v in check_vars:
+                v.set(state)
+
+        ctk.CTkCheckBox(dialog, text="Zaznacz / Odznacz wszystkie",
+                        variable=all_var, command=toggle_all,
+                        font=ctk.CTkFont(size=12, weight="bold")).pack(padx=16, anchor="w", pady=4)
+
+        # Scrollable chapter list
+        scroll = ctk.CTkScrollableFrame(dialog, height=350)
+        scroll.pack(fill="both", expand=True, padx=12, pady=4)
+
+        for i, ch in enumerate(chapters):
+            var = ctk.BooleanVar(value=True)
+            check_vars.append(var)
+            words = len(ch.text.split())
+            label = f"{i+1}. {ch.title[:45]}  (~{words} słów)"
+            ctk.CTkCheckBox(scroll, text=label, variable=var,
+                            font=ctk.CTkFont(size=11)).pack(anchor="w", pady=1)
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=12, pady=8)
+
+        def on_cancel():
+            dialog.destroy()
+
+        def on_generate():
+            result[0] = [chapters[i].index for i, v in enumerate(check_vars) if v.get()]
+            dialog.destroy()
+
+        ctk.CTkButton(btn_frame, text="Anuluj", width=100,
+                      fg_color="gray40", command=on_cancel).pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text="🎧 Generuj", width=160,
+                      command=on_generate).pack(side="right", padx=4)
+
+        dialog.wait_window()
+
+        if result[0] is not None and len(result[0]) == 0:
+            self._audiobook_status.configure(text="Nie wybrano żadnych rozdziałów", text_color="orange")
+            return None
+
+        return result[0]
 
     def _audiobook_done(self, count):
         self._audiobook_btn.configure(state="normal", text="🎧 Generuj audiobook")

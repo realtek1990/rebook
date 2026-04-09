@@ -276,11 +276,18 @@ def generate_sample(voice: str, callback: Callable[[str | None], None]):
     threading.Thread(target=_run, daemon=True).start()
 
 
+def list_chapters(epub_path: str) -> list[Chapter]:
+    """Return chapter list from EPUB without generating audio."""
+    _full_text, chapters = extract_text_from_epub(epub_path)
+    return chapters
+
+
 def generate_audiobook(
     epub_path: str,
     voice: str,
     output_dir: str,
     progress_cb: Callable[[int, int, str], None] | None = None,
+    selected_chapters: list[int] | None = None,
 ) -> list[str]:
     """
     Generate audiobook MP3s from an EPUB file (parallel, 8 concurrent).
@@ -292,6 +299,8 @@ def generate_audiobook(
         progress_cb(0, 1, "Czytam EPUB…")
 
     _full_text, chapters = extract_text_from_epub(epub_path)
+    if selected_chapters is not None:
+        chapters = [c for c in chapters if c.index in selected_chapters]
     total = len(chapters)
 
     # Prepare chapter jobs
