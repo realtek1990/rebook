@@ -255,6 +255,10 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
 
+        // Start foreground service so Android won't kill us
+        val app = getApplication<android.app.Application>()
+        ConversionService.start(app, "🎧 Audiobook — generuję…")
+
         viewModelScope.launch {
             try {
                 // Resolve EPUB to a File — either direct path or copy from URI
@@ -262,9 +266,9 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     File(epubPath)
                 } else {
                     // Copy URI content to a temp file so ZipFile can read it
-                    val tmp = File(getApplication<android.app.Application>().cacheDir,
+                    val tmp = File(app.cacheDir,
                         _state.value.selectedFileName.ifBlank { "input.epub" })
-                    getApplication<android.app.Application>().contentResolver
+                    app.contentResolver
                         .openInputStream(epubUri!!)?.use { ins ->
                             tmp.outputStream().use { ins.copyTo(it) }
                         }
@@ -272,8 +276,8 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                 }
 
                 val outDir = File(
-                    getApplication<android.app.Application>().getExternalFilesDir(null)
-                        ?: epubFile.parentFile ?: getApplication<android.app.Application>().cacheDir,
+                    app.getExternalFilesDir(null)
+                        ?: epubFile.parentFile ?: app.cacheDir,
                     "${epubFile.nameWithoutExtension}_audiobook"
                 )
 
@@ -284,8 +288,13 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     text = text,
                     voice = _state.value.ttsVoice,
                     outputDir = outDir,
-                ) { _, _, msg ->
+                ) { done, total, msg ->
                     _state.update { it.copy(audiobookProgress = msg) }
+                    ConversionService.updateProgress(
+                        app,
+                        if (total > 0) (done * 100 / total) else 0,
+                        msg
+                    )
                 }
 
                 _state.update {
@@ -302,6 +311,8 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                         audiobookError = e.message ?: "Błąd generowania",
                     )
                 }
+            } finally {
+                ConversionService.stop(app)
             }
         }
     }

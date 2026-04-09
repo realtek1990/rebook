@@ -1,6 +1,10 @@
 package com.rebook.app.domain
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.*
 import okio.ByteString
@@ -9,7 +13,9 @@ import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * TtsEngine — Audiobook generator for Android.
@@ -104,9 +110,8 @@ class TtsEngine {
                 "&Sec-MS-GEC-Version=$SEC_MS_GEC_VERSION" +
                 "&ConnectionId=$connId"
 
-            suspendCancellableCoroutine { cont ->
+            suspendCancellableCoroutine<File> { cont ->
                 val audioBuffer = mutableListOf<ByteArray>()
-                var receivingAudio = false
 
                 val request = Request.Builder()
                     .url(url)
@@ -122,72 +127,73 @@ class TtsEngine {
                 val listener = object : WebSocketListener() {
 
                     override fun onOpen(ws: WebSocket, response: Response) {
-                        // 1. Send config message
                         val configMsg = buildConfigMessage()
                         ws.send(configMsg)
-
-                        // 2. Send SSML message
                         val ssml = buildSsml(text, voice)
                         val ssmlMsg = buildSsmlMessage(ssml)
                         ws.send(ssmlMsg)
                     }
 
                     override fun onMessage(ws: WebSocket, text: String) {
-                        when {
-                            text.contains("Path:audio") -> receivingAudio = true
-                            text.contains("Path:turn.end") -> {
-                                // Done — flush audio to file
-                                ws.close(1000, null)
+                        if (text.contains("Path:turn.end")) {
+                            ws.close(1000, null)
+                            if (!cont.isCompleted) {
                                 if (audioBuffer.isEmpty()) {
-                                    cont.resume(Result.failure(Exception("No audio received from Edge TTS")))
+                                    cont.resumeWithException(Exception("No audio received from Edge TTS"))
                                     return
                                 }
                                 outputFile.parentFile?.mkdirs()
                                 FileOutputStream(outputFile).use { fos ->
                                     audioBuffer.forEach { fos.write(it) }
                                 }
-                                cont.resume(Result.success(outputFile))
+                                cont.resume(outputFile)
                             }
                         }
                     }
 
                     override fun onMessage(ws: WebSocket, bytes: ByteString) {
-                        if (!receivingAudio) return
-                        // Binary audio chunk — strip the header (find 0x00 0x00 = end of header)
+                        // Edge TTS binary frame format:
+                        //   bytes[0..1] = header length (big-endian uint16)
+                        //   bytes[2..2+headerLen-1] = ASCII header text
+                        //   bytes[2+headerLen..] = MP3 audio data
                         val raw = bytes.toByteArray()
-                        val headerEnd = findAudioStart(raw)
-                        if (headerEnd >= 0 && headerEnd < raw.size) {
-                            audioBuffer.add(raw.copyOfRange(headerEnd, raw.size))
-                        }
+                        if (raw.size < 2) return
+                        val headerLen = ((raw[0].toInt() and 0xFF) shl 8) or (raw[1].toInt() and 0xFF)
+                        val audioStart = 2 + headerLen
+                        if (audioStart >= raw.size) return  // metadata-only frame, no audio
+                        val header = String(raw, 2, headerLen, Charsets.US_ASCII)
+                        if (!header.contains("Path:audio")) return
+                        audioBuffer.add(raw.copyOfRange(audioStart, raw.size))
                     }
 
                     override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                         if (!cont.isCompleted) {
-                            cont.resume(Result.failure(t))
+                            cont.resumeWithException(t)
                         }
                     }
 
                     override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-                        // already resumed in onMessage
+                        // If we get here without turn.end, audio might still be empty
+                        if (!cont.isCompleted) {
+                            if (audioBuffer.isNotEmpty()) {
+                                outputFile.parentFile?.mkdirs()
+                                FileOutputStream(outputFile).use { fos ->
+                                    audioBuffer.forEach { fos.write(it) }
+                                }
+                                cont.resume(outputFile)
+                            } else {
+                                cont.resumeWithException(Exception("WebSocket closed without audio"))
+                            }
+                        }
                     }
                 }
 
                 val ws = client.newWebSocket(request, listener)
                 cont.invokeOnCancellation { ws.close(1000, "Cancelled") }
             }
-        }.getOrElse { Result.failure(it) }
+        }
     }
 
-    /** Find the start of MP3 audio data after the binary WebSocket header */
-    private fun findAudioStart(data: ByteArray): Int {
-        // Edge TTS binary frames: text header + 0x00 0x00 separator + audio
-        for (i in 0 until data.size - 1) {
-            if (data[i] == 0x00.toByte() && data[i + 1] == 0x00.toByte()) {
-                return i + 2
-            }
-        }
-        return 0
-    }
 
     private fun buildConfigMessage(): String {
         val timestamp = edgeTimestamp()
@@ -301,7 +307,10 @@ class TtsEngine {
         .replace(Regex("""\n{3,}"""), "\n\n")
         .trim()
 
-    // ── Full audiobook generation ─────────────────────────────────────────────
+    // ── Full audiobook generation (parallel) ──────────────────────────────────
+
+    /** Max concurrent Edge TTS WebSocket connections */
+    private val ttsSemaphore = Semaphore(5)
 
     suspend fun generateAudiobook(
         text: String,
@@ -312,39 +321,52 @@ class TtsEngine {
         outputDir.mkdirs()
         val chapters = detectChapters(text)
         val total = chapters.size
-        val generated = mutableListOf<File>()
+        val completedCount = AtomicInteger(0)
 
-        for ((i, chapter) in chapters.withIndex()) {
-            onProgress(i, total, "Generuję: ${chapter.title.take(50)}…")
+        // Prepare output files up-front (indexed names)
+        data class ChapterJob(val index: Int, val title: String, val cleanText: String, val outFile: File)
+        val jobs = chapters.mapIndexedNotNull { i, chapter ->
+            val clean = cleanTextForTts(chapter.text)
+            if (clean.isBlank()) return@mapIndexedNotNull null
             val safeTitle = chapter.title
                 .replace(Regex("[^\\wĄąĆćĘęŁłŃńÓóŚśŹźŻż\\s-]"), "")
                 .trim().replace(Regex("\\s+"), "_").take(50)
             val outFile = File(outputDir, "%02d_%s.mp3".format(i + 1, safeTitle))
-            val clean = cleanTextForTts(chapter.text)
-            if (clean.isBlank()) continue
+            ChapterJob(i, chapter.title, clean, outFile)
+        }
 
-            // Chunk long chapters at sentence boundary (Edge TTS limit ~4500 chars)
-            val chunks = chunkBySentence(clean, 4000)
-            if (chunks.size == 1) {
-                val r = synthesize(clean, voice, outFile)
-                r.onSuccess { f -> generated.add(f) }
-                r.onFailure { e -> onProgress(i, total, "⚠️ Błąd: ${e.message}") }
-            } else {
-                // Synthesize each chunk → concatenate raw MP3 bytes
-                val parts = mutableListOf<ByteArray>()
-                var chunkOk = true
-                for (chunk in chunks) {
-                    val tmp = File.createTempFile("chunk_", ".mp3", outputDir)
-                    val r = synthesize(chunk, voice, tmp)
-                    r.onSuccess { f -> parts.add(f.readBytes()); f.delete() }
-                    r.onFailure { chunkOk = false; tmp.delete() }
-                }
-                if (chunkOk && parts.isNotEmpty()) {
-                    FileOutputStream(outFile).use { fos -> parts.forEach(fos::write) }
-                    generated.add(outFile)
+        onProgress(0, total, "Generuję ${jobs.size} rozdziałów (×5 równolegle)…")
+
+        // Launch all chapters in parallel, limited by semaphore
+        val results = jobs.map { job ->
+            async {
+                ttsSemaphore.withPermit {
+                    val chunks = chunkBySentence(job.cleanText, 4000)
+                    val result: File? = if (chunks.size == 1) {
+                        synthesize(job.cleanText, voice, job.outFile).getOrNull()
+                    } else {
+                        // Multi-chunk: synthesize each → concatenate
+                        val parts = mutableListOf<ByteArray>()
+                        var ok = true
+                        for (chunk in chunks) {
+                            val tmp = File.createTempFile("chunk_", ".mp3", outputDir)
+                            val r = synthesize(chunk, voice, tmp)
+                            r.onSuccess { f -> parts.add(f.readBytes()); f.delete() }
+                            r.onFailure { ok = false; tmp.delete() }
+                        }
+                        if (ok && parts.isNotEmpty()) {
+                            FileOutputStream(job.outFile).use { fos -> parts.forEach(fos::write) }
+                            job.outFile
+                        } else null
+                    }
+                    val done = completedCount.incrementAndGet()
+                    onProgress(done, total, "${done}/${total}: ${job.title.take(40)}…")
+                    result
                 }
             }
-        }
+        }.awaitAll()
+
+        val generated = results.filterNotNull().sortedBy { it.name }
 
         // Playlist
         File(outputDir, "playlist.m3u").writeText(buildString {
