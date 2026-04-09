@@ -228,8 +228,9 @@ def _clean_text_for_tts(text: str) -> str:
     return text.strip()
 
 
-async def _generate_chapter_async(text: str, voice: str, output_path: str):
-    """Generate a single chapter using edge-tts."""
+async def _generate_chapter_async(text: str, voice: str, output_path: str,
+                                   max_retries: int = 2, timeout: int = 120):
+    """Generate a single chapter using edge-tts with retry + timeout."""
     try:
         import edge_tts
     except ImportError:
@@ -240,8 +241,17 @@ async def _generate_chapter_async(text: str, voice: str, output_path: str):
         )
         import edge_tts
 
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_path)
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            communicate = edge_tts.Communicate(text, voice)
+            await asyncio.wait_for(communicate.save(output_path), timeout=timeout)
+            return  # success
+        except (asyncio.TimeoutError, Exception) as e:
+            last_err = e
+            if attempt < max_retries:
+                await asyncio.sleep(1 + attempt)  # brief backoff
+    raise RuntimeError(f"edge-tts failed after {max_retries+1} attempts: {last_err}")
 
 
 def generate_sample(voice: str, callback: Callable[[str | None], None]):
