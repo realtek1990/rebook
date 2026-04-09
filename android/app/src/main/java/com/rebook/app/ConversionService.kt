@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 
 /**
@@ -59,6 +61,8 @@ class ConversionService : Service() {
     }
 
     private lateinit var notifManager: NotificationManager
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var currentTitle = "ReBook — konwersja"
     private var currentProgress = 0
     private var currentMsg = ""
@@ -74,6 +78,7 @@ class ConversionService : Service() {
             ACTION_START -> {
                 currentTitle = intent.getStringExtra(EXTRA_TITLE) ?: currentTitle
                 startForeground(NOTIF_ID, buildNotification())
+                acquireLocks()
             }
             ACTION_UPDATE -> {
                 currentProgress = intent.getIntExtra(EXTRA_PROGRESS, currentProgress)
@@ -81,6 +86,7 @@ class ConversionService : Service() {
                 notifManager.notify(NOTIF_ID, buildNotification())
             }
             ACTION_STOP -> {
+                releaseLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -119,5 +125,33 @@ class ConversionService : Service() {
             .setOnlyAlertOnce(true)
             .setContentIntent(tapIntent)
             .build()
+    }
+
+    private fun acquireLocks() {
+        // CPU WakeLock — prevents coroutines/threads from being frozen
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "ReBook::ConversionWakeLock"
+        ).apply { acquire(4 * 60 * 60 * 1000L) }  // 4h max
+
+        // WiFi WakeLock — prevents WiFi from disconnecting (Edge TTS WebSocket)
+        val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+        wifiLock = wm.createWifiLock(
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+            "ReBook::ConversionWifiLock"
+        ).apply { acquire() }
+    }
+
+    private fun releaseLocks() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
+        wifiLock?.let { if (it.isHeld) it.release() }
+        wifiLock = null
+    }
+
+    override fun onDestroy() {
+        releaseLocks()
+        super.onDestroy()
     }
 }

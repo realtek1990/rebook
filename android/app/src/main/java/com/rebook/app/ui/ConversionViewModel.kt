@@ -302,7 +302,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     text = text,
                     voice = _state.value.ttsVoice,
                     outputDir = cacheDir,
-                    rate = "+50%",
+                    rate = "0%",
                 ) { done, total, msg ->
                     val pct = if (total > 0) 0.05f + (done.toFloat() / total) * 0.75f else -1f
                     _state.update { it.copy(
