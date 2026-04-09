@@ -50,11 +50,51 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_SRC="${SCRIPT_DIR}/ReBook.app"
 APP_DST="/Applications/ReBook.app"
 
+# ── Check for Python 3 ──────────────────────────────────────────────
+has_python3() {
+    for p in /opt/homebrew/bin/python3.1[0-9] /opt/homebrew/bin/python3.9 \
+             /usr/local/bin/python3.1[0-9] /usr/local/bin/python3.9; do
+        [[ -x "$p" ]] && return 0
+    done
+    [[ -x /usr/bin/python3 ]] && /usr/bin/python3 -c "import sys" 2>/dev/null && return 0
+    command -v python3 &>/dev/null && return 0
+    return 1
+}
+
 echo ""
 echo "╔══════════════════════════════════════════════╗"
 echo "║       🔧 Instaluję ReBook...                ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
+
+# Check Python 3 FIRST — install if missing
+if ! has_python3; then
+    echo "⚠️  Python 3 nie jest zainstalowany."
+    echo "→ Uruchamiam instalator Xcode Command Line Tools..."
+    echo "   (zawiera Python 3, git, i inne narzędzia deweloperskie)"
+    echo ""
+    xcode-select --install 2>/dev/null || true
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════╗"
+    echo "║  ℹ️  Poczekaj aż instalator Xcode CLT się zakończy,    ║"
+    echo "║     a następnie uruchom ten skrypt ponownie.            ║"
+    echo "╚══════════════════════════════════════════════════════════╝"
+    echo ""
+    read -n 1 -s -r -p "Naciśnij dowolny klawisz po zakończeniu instalacji..."
+    echo ""
+
+    if ! has_python3; then
+        echo ""
+        echo "❌ Python 3 nadal nie jest dostępny."
+        echo "   Zainstaluj ręcznie: python.org/downloads lub 'brew install python3'"
+        echo "   Następnie uruchom ten skrypt ponownie."
+        echo ""
+        read -n 1 -s -r -p "Naciśnij dowolny klawisz aby zamknąć..."
+        exit 1
+    fi
+    echo "✅ Python 3 znaleziony!"
+    echo ""
+fi
 
 # Copy app to /Applications (replacing old version)
 if [ -d "$APP_DST" ]; then
