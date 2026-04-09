@@ -44,6 +44,7 @@ data class ConversionState(
     // Directly-picked EPUB for audiobook (independent of conversion output)
     val audiobookEpubUri: Uri? = null,
     val audiobookEpubName: String = "",
+    val audiobookProgressPercent: Float = -1f,  // -1 = indeterminate, 0..1 = progress
     // ── Pipeline ─────────────────────────────────────────────────────
     val pipelineAutoAudiobook: Boolean = false,   // auto-generate audiobook after conversion
     val pipelineAudiobookVoice: String = "pl-PL-MarekNeural",
@@ -194,6 +195,21 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         _state.update { it.copy(ttsVoice = voice) }
     }
 
+    private var audiobookJob: kotlinx.coroutines.Job? = null
+
+    fun cancelAudiobook() {
+        audiobookJob?.cancel()
+        audiobookJob = null
+        _state.update {
+            it.copy(
+                isGeneratingAudiobook = false,
+                audiobookProgress = "⏹ Anulowano",
+                audiobookProgressPercent = -1f,
+            )
+        }
+        ConversionService.stop(getApplication())
+    }
+
     fun setAudiobookEpub(uri: Uri, name: String) {
         _state.update {
             it.copy(
@@ -249,23 +265,21 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         _state.update {
             it.copy(
                 isGeneratingAudiobook = true,
-                audiobookProgress = "Czytam EPUB…",
+                audiobookProgress = "📖 Czytam EPUB…",
+                audiobookProgressPercent = -1f,
                 audiobookOutputDir = null,
                 audiobookError = null,
             )
         }
 
-        // Start foreground service so Android won't kill us
         val app = getApplication<android.app.Application>()
         ConversionService.start(app, "🎧 Audiobook — generuję…")
 
-        viewModelScope.launch {
+        audiobookJob = viewModelScope.launch {
             try {
-                // Resolve EPUB to a File — either direct path or copy from URI
                 val epubFile: File = if (epubPath != null) {
                     File(epubPath)
                 } else {
-                    // Copy URI content to a temp file so ZipFile can read it
                     val tmp = File(app.cacheDir,
                         _state.value.selectedFileName.ifBlank { "input.epub" })
                     app.contentResolver
@@ -275,40 +289,83 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     tmp
                 }
 
-                val outDir = File(
-                    app.getExternalFilesDir(null)
-                        ?: epubFile.parentFile ?: app.cacheDir,
-                    "${epubFile.nameWithoutExtension}_audiobook"
-                )
+                val cacheDir = File(app.cacheDir, "${epubFile.nameWithoutExtension}_audiobook")
+                cacheDir.mkdirs()
 
-                // Extract text from EPUB
+                _state.update { it.copy(
+                    audiobookProgress = "📝 Wyciągam tekst z EPUB…",
+                    audiobookProgressPercent = 0.02f,
+                ) }
                 val text = extractEpubText(epubFile)
 
                 val files = ttsEngine.generateAudiobook(
                     text = text,
                     voice = _state.value.ttsVoice,
-                    outputDir = outDir,
+                    outputDir = cacheDir,
+                    rate = "+50%",
                 ) { done, total, msg ->
-                    _state.update { it.copy(audiobookProgress = msg) }
-                    ConversionService.updateProgress(
-                        app,
-                        if (total > 0) (done * 100 / total) else 0,
-                        msg
-                    )
+                    val pct = if (total > 0) 0.05f + (done.toFloat() / total) * 0.75f else -1f
+                    _state.update { it.copy(
+                        audiobookProgress = "🎙 $msg",
+                        audiobookProgressPercent = pct,
+                    ) }
+                    ConversionService.updateProgress(app, (pct * 100).toInt(), msg)
                 }
+
+                _state.update { it.copy(
+                    audiobookProgress = "📂 Zapisuję do Music/ReBook/…",
+                    audiobookProgressPercent = 0.82f,
+                ) }
+                val musicDir = File(
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_MUSIC
+                    ),
+                    "ReBook/${epubFile.nameWithoutExtension}"
+                )
+                musicDir.mkdirs()
+
+                val publicFiles = mutableListOf<File>()
+                for ((i, audioFile) in files.withIndex()) {
+                    val dest = File(musicDir, audioFile.name)
+                    audioFile.copyTo(dest, overwrite = true)
+                    publicFiles.add(dest)
+                    val mime = if (dest.extension == "m4a") "audio/mp4" else "audio/mpeg"
+                    android.media.MediaScannerConnection.scanFile(
+                        app, arrayOf(dest.absolutePath), arrayOf(mime), null
+                    )
+                    val copyPct = 0.82f + (i.toFloat() / files.size) * 0.13f
+                    _state.update { it.copy(
+                        audiobookProgress = "📂 ${i+1}/${files.size}: ${audioFile.name}",
+                        audiobookProgressPercent = copyPct,
+                    ) }
+                }
+
+                File(musicDir, "playlist.m3u").writeText(buildString {
+                    appendLine("#EXTM3U")
+                    publicFiles.forEach {
+                        appendLine("#EXTINF:-1,${it.nameWithoutExtension}")
+                        appendLine(it.absolutePath)
+                    }
+                })
+
+                cacheDir.deleteRecursively()
 
                 _state.update {
                     it.copy(
                         isGeneratingAudiobook = false,
-                        audiobookOutputDir = outDir.absolutePath,
-                        audiobookProgress = "✅ Gotowe! ${files.size} rozdziałów MP3",
+                        audiobookOutputDir = musicDir.absolutePath,
+                        audiobookProgress = "✅ Gotowe! ${publicFiles.size} plików → Music/ReBook/${epubFile.nameWithoutExtension}/",
+                        audiobookProgressPercent = 1f,
                     )
                 }
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // Cancelled by user
             } catch (e: Exception) {
                 _state.update {
                     it.copy(
                         isGeneratingAudiobook = false,
                         audiobookError = e.message ?: "Błąd generowania",
+                        audiobookProgressPercent = -1f,
                     )
                 }
             } finally {

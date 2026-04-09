@@ -549,42 +549,77 @@ fun HomeScreen(
                             Spacer(Modifier.height(4.dp))
                         }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = { viewModel.startAudiobook() },
-                                enabled = !state.isGeneratingAudiobook,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.tertiary
+                        // ── Progress bar ──
+                        if (state.isGeneratingAudiobook || state.audiobookProgressPercent == 1f) {
+                            Spacer(Modifier.height(4.dp))
+                            if (state.audiobookProgressPercent < 0f) {
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.tertiary,
                                 )
-                            ) {
-                                if (state.isGeneratingAudiobook) {
-                                    CircularProgressIndicator(
-                                        Modifier.size(16.dp), strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.onTertiary
+                            } else {
+                                LinearProgressIndicator(
+                                    progress = { state.audiobookProgressPercent },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Generate / Stop button
+                            if (state.isGeneratingAudiobook) {
+                                Button(
+                                    onClick = { viewModel.cancelAudiobook() },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.error
                                     )
-                                    Spacer(Modifier.width(8.dp))
+                                ) {
+                                    Icon(Icons.Default.Stop, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("⏹ Zatrzymaj")
                                 }
-                                Text(if (state.isGeneratingAudiobook) "Generuję…" else "🎧 Generuj audiobook")
+                            } else {
+                                Button(
+                                    onClick = { viewModel.startAudiobook() },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiary
+                                    )
+                                ) {
+                                    Text("🎧 Generuj audiobook")
+                                }
                             }
 
                             if (state.audiobookOutputDir != null) {
                                 FilledTonalButton(onClick = {
                                     val dir = File(state.audiobookOutputDir)
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(
-                                            android.net.Uri.fromFile(dir),
-                                            "resource/folder"
+                                    try {
+                                        val uri = android.net.Uri.parse(
+                                            "content://com.android.externalstorage.documents/document/primary:" +
+                                            dir.absolutePath.removePrefix("/storage/emulated/0/")
+                                                .replace("/", "%2F")
                                         )
-                                    }
-                                    try { context.startActivity(intent) }
-                                    catch (e: Exception) {
-                                        Toast.makeText(context, dir.absolutePath, Toast.LENGTH_LONG).show()
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(uri, "vnd.android.document/directory")
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(
+                                            context,
+                                            "📂 ${dir.absolutePath}",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                     }
                                 }) {
                                     Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Folder")
+                                    Text("Otwórz")
                                 }
                             }
                         }

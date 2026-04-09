@@ -100,6 +100,7 @@ class TtsEngine {
         text: String,
         voice: String,
         outputFile: File,
+        rate: String = "0%",
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
             val connId = UUID.randomUUID().toString().replace("-", "")
@@ -129,7 +130,7 @@ class TtsEngine {
                     override fun onOpen(ws: WebSocket, response: Response) {
                         val configMsg = buildConfigMessage()
                         ws.send(configMsg)
-                        val ssml = buildSsml(text, voice)
+                        val ssml = buildSsml(text, voice, rate)
                         val ssmlMsg = buildSsmlMessage(ssml)
                         ws.send(ssmlMsg)
                     }
@@ -212,7 +213,7 @@ class TtsEngine {
                 ssml
     }
 
-    private fun buildSsml(text: String, voice: String): String {
+    private fun buildSsml(text: String, voice: String, rate: String = "0%"): String {
         val locale = voice.substringBeforeLast("-").replace("-", "-")
         val escaped = text
             .replace("&", "&amp;")
@@ -220,7 +221,7 @@ class TtsEngine {
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
         return """<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='$locale'>""" +
-                """<voice name='$voice'><prosody rate='0%'>$escaped</prosody></voice></speak>"""
+                """<voice name='$voice'><prosody rate='$rate'>$escaped</prosody></voice></speak>"""
     }
 
     private fun edgeTimestamp(): String {
@@ -310,12 +311,13 @@ class TtsEngine {
     // ── Full audiobook generation (parallel) ──────────────────────────────────
 
     /** Max concurrent Edge TTS WebSocket connections */
-    private val ttsSemaphore = Semaphore(5)
+    private val ttsSemaphore = Semaphore(8)
 
     suspend fun generateAudiobook(
         text: String,
         voice: String,
         outputDir: File,
+        rate: String = "0%",
         onProgress: (Int, Int, String) -> Unit = { _, _, _ -> },
     ): List<File> = withContext(Dispatchers.IO) {
         outputDir.mkdirs()
@@ -335,7 +337,7 @@ class TtsEngine {
             ChapterJob(i, chapter.title, clean, outFile)
         }
 
-        onProgress(0, total, "Generuję ${jobs.size} rozdziałów (×5 równolegle)…")
+        onProgress(0, total, "Generuję ${jobs.size} rozdziałów (×8 równolegle)…")
 
         // Launch all chapters in parallel, limited by semaphore
         val results = jobs.map { job ->
@@ -343,14 +345,14 @@ class TtsEngine {
                 ttsSemaphore.withPermit {
                     val chunks = chunkBySentence(job.cleanText, 4000)
                     val result: File? = if (chunks.size == 1) {
-                        synthesize(job.cleanText, voice, job.outFile).getOrNull()
+                        synthesize(job.cleanText, voice, job.outFile, rate).getOrNull()
                     } else {
                         // Multi-chunk: synthesize each → concatenate
                         val parts = mutableListOf<ByteArray>()
                         var ok = true
                         for (chunk in chunks) {
                             val tmp = File.createTempFile("chunk_", ".mp3", outputDir)
-                            val r = synthesize(chunk, voice, tmp)
+                            val r = synthesize(chunk, voice, tmp, rate)
                             r.onSuccess { f -> parts.add(f.readBytes()); f.delete() }
                             r.onFailure { ok = false; tmp.delete() }
                         }
@@ -366,7 +368,29 @@ class TtsEngine {
             }
         }.awaitAll()
 
-        val generated = results.filterNotNull().sortedBy { it.name }
+        var generated = results.filterNotNull().sortedBy { it.name }
+
+        // Post-process: if fast generation was used, slow audio back to normal speed
+        if (rate != "0%" && generated.isNotEmpty()) {
+            onProgress(0, generated.size, "🔄 Normalizuję prędkość audio…")
+            // rate="+50%" → audio is 1.5x → slow down by 0.6667 to get 1.0x
+            val speedFactor = 1.0f / 1.5f  // 0.6667
+            val normalized = mutableListOf<File>()
+            for ((i, mp3) in generated.withIndex()) {
+                try {
+                    val m4a = File(mp3.parent, mp3.nameWithoutExtension + ".m4a")
+                    AudioTimeStretcher.stretchFile(mp3, m4a, speedFactor)
+                    mp3.delete()  // Remove fast MP3
+                    normalized.add(m4a)
+                    onProgress(i + 1, generated.size, "🔄 ${i + 1}/${generated.size}: ${mp3.nameWithoutExtension}")
+                } catch (e: Exception) {
+                    // Keep original MP3 if stretch fails
+                    normalized.add(mp3)
+                    onProgress(i + 1, generated.size, "⚠️ Stretch error: ${e.message?.take(40)}")
+                }
+            }
+            generated = normalized.sortedBy { it.name }
+        }
 
         // Playlist
         File(outputDir, "playlist.m3u").writeText(buildString {
