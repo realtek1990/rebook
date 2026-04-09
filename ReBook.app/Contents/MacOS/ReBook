@@ -347,8 +347,15 @@ class InstallerDelegate(NSObject):
     @objc.IBAction
     def launchApp_(self, sender):
         self.window.close()
-        NSApp.terminate_(None)
-        run_app()
+        # Use stop_ instead of terminate_ — terminate_ kills the process
+        # immediately so run_app() never executes.  stop_ exits the NSApp
+        # run-loop, letting control fall through to the post-app.run() code
+        # on line 361 which calls run_app().
+        NSApp.stop_(None)
+        # Post a dummy event to unblock the run loop immediately
+        event = NSEvent.otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
+            NSApplicationDefined, NSMakePoint(0, 0), 0, 0, 0, None, 0, 0, 0)
+        NSApp.postEvent_atStart_(event, True)
 
 
 if __name__ == "__main__":
