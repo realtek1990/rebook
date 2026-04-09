@@ -1243,6 +1243,15 @@ class AppDelegate(NSObject):
 def main():
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+
+    # Explicitly set app icon — when launched via os.execv from venv Python,
+    # macOS doesn't pick up the bundle's CFBundleIconFile automatically
+    icon_path = Path(__file__).parent.parent / "AppIcon.icns"
+    if icon_path.exists():
+        icon_image = NSImage.alloc().initWithContentsOfFile_(str(icon_path))
+        if icon_image:
+            app.setApplicationIconImage_(icon_image)
+
     delegate = AppDelegate.alloc().init()
     app.setDelegate_(delegate)
     app.run()

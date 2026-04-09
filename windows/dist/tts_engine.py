@@ -313,13 +313,19 @@ def generate_audiobook(
         safe_title = re.sub(r'\s+', '_', safe_title)
         filename = f"{i + 1:02d}_{safe_title}.mp3"
         out_path = str(out_dir / filename)
-        jobs.append((i, chapter.title, clean_text, out_path))
+        # Pre-compute chunks so we can count total work units
+        chunks = _chunk_text(clean_text, max_chars=4500)
+        jobs.append((i, chapter.title, clean_text, out_path, chunks))
+
+    total_chunks = sum(len(ch[4]) for ch in jobs)
 
     if progress_cb:
-        progress_cb(0, len(jobs), f"Generuję {len(jobs)} rozdziałów (×8 równolegle)…")
+        progress_cb(0, total_chunks,
+                    f"Generuję {len(jobs)} rozdziałów ({total_chunks} fragmentów, ×8 równolegle)…")
 
     # Parallel generation
-    generated = asyncio.run(_generate_all_chapters(jobs, voice, len(jobs), progress_cb))
+    generated = asyncio.run(
+        _generate_all_chapters(jobs, voice, len(jobs), total_chunks, progress_cb))
 
     # Write M3U playlist
     m3u_path = str(out_dir / "playlist.m3u")
@@ -329,41 +335,54 @@ def generate_audiobook(
             f.write(f"#EXTINF:-1,{Path(path).stem}\n{path}\n")
 
     if progress_cb:
-        progress_cb(len(generated), len(generated), f"✅ Gotowe! {len(generated)} rozdziałów.")
+        progress_cb(total_chunks, total_chunks,
+                    f"✅ Gotowe! {len(generated)} rozdziałów.")
 
     return generated
 
 
-async def _generate_all_chapters(jobs, voice, total, progress_cb):
+async def _generate_all_chapters(jobs, voice, total_chapters, total_chunks, progress_cb):
     """Generate all chapters in parallel with semaphore limit."""
     sem = asyncio.Semaphore(8)
-    completed = [0]  # mutable counter
+    chunks_done = [0]  # mutable counter — tracks individual chunks
+    chapters_done = [0]
     generated = []
 
-    async def _do_one(idx, title, text, out_path):
+    async def _do_one(idx, title, text, out_path, chunks):
         async with sem:
-            chunks = _chunk_text(text, max_chars=4500)
-            if len(chunks) == 1:
+            num_chunks = len(chunks)
+            if num_chunks == 1:
+                if progress_cb:
+                    progress_cb(chunks_done[0], total_chunks,
+                                f"📖 Rozdział {chapters_done[0]+1}/{total_chapters}: {title[:35]}…")
                 await _generate_chapter_async(text, voice, out_path)
+                chunks_done[0] += 1
             else:
                 import tempfile
                 tmp_files = []
                 for j, chunk in enumerate(chunks):
+                    if progress_cb:
+                        progress_cb(chunks_done[0], total_chunks,
+                                    f"📖 Rozdział {chapters_done[0]+1}/{total_chapters}: {title[:25]}… "
+                                    f"(fragment {j+1}/{num_chunks})")
                     tmp = tempfile.mktemp(suffix=".mp3")
                     await _generate_chapter_async(chunk, voice, tmp)
                     tmp_files.append(tmp)
+                    chunks_done[0] += 1
                 _concat_mp3(tmp_files, out_path)
                 for f in tmp_files:
                     try:
                         os.remove(f)
                     except Exception:
                         pass
-            completed[0] += 1
+            chapters_done[0] += 1
             if progress_cb:
-                progress_cb(completed[0], total, f"{completed[0]}/{total}: {title[:40]}…")
+                progress_cb(chunks_done[0], total_chunks,
+                            f"✅ {chapters_done[0]}/{total_chapters} rozdziałów gotowe")
             return out_path
 
-    tasks = [_do_one(idx, title, text, out_path) for idx, title, text, out_path in jobs]
+    tasks = [_do_one(idx, title, text, out_path, chunks)
+             for idx, title, text, out_path, chunks in jobs]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for r in results:
         if isinstance(r, str):

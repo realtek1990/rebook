@@ -339,6 +339,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
         audiobookJob = viewModelScope.launch {
             try {
                 val cacheDir = File(app.cacheDir, "${epubFile.nameWithoutExtension}_audiobook")
+                if (cacheDir.exists()) cacheDir.deleteRecursively()
                 cacheDir.mkdirs()
 
                 _state.update { it.copy(
