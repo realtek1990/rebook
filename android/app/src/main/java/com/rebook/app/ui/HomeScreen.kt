@@ -85,6 +85,31 @@ fun HomeScreen(
         }
     }
 
+    var showAbout by remember { mutableStateOf(false) }
+
+    if (showAbout) {
+        AlertDialog(
+            onDismissRequest = { showAbout = false },
+            title = { Text(stringResource(R.string.about_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(R.string.about_version, "3.7.1"),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(stringResource(R.string.about_body))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAbout = false }) {
+                    Text("OK")
+                }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -99,6 +124,9 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showAbout = true }) {
+                        Icon(Icons.Default.Info, contentDescription = "About")
+                    }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
@@ -375,6 +403,30 @@ fun HomeScreen(
                                 Spacer(Modifier.width(4.dp))
                                 Text(stringResource(R.string.share_btn))
                             }
+                            // Kindle — pre-filled email intent
+                            if (state.config.kindleEmail.isNotBlank()) {
+                                FilledTonalButton(onClick = {
+                                    state.outputPath?.let { path ->
+                                        val file = File(path)
+                                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/epub+zip"
+                                            putExtra(Intent.EXTRA_EMAIL, arrayOf(state.config.kindleEmail))
+                                            putExtra(Intent.EXTRA_SUBJECT, "Convert")
+                                            putExtra(Intent.EXTRA_TEXT, "Przesyłam: ${file.name}")
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "Send to Kindle"))
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Book, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Kindle")
+                                }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             // Open
                             FilledTonalButton(onClick = {
                                 state.outputPath?.let { path ->

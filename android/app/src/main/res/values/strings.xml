@@ -49,4 +49,14 @@
     <string name="settings_ocr_info">ReBook uses Google ML Kit for on-device OCR. It works offline with no additional downloads. Supports 100+ languages.</string>
     <string name="settings_save">Save</string>
     <string name="settings_cancel">Cancel</string>
+
+    <!-- Kindle Info -->
+    <string name="kindle_info_title">📧 Jak wysyłać na Kindle?</string>
+    <string name="kindle_info_body">Aby wysyłać e-booki bezpośrednio na Kindle:\n\n1️⃣ Otwórz amazon.com/myk → Ustawienia → Urządzenia\n2️⃣ Znajdź swój Kindle i skopiuj \"Send-to-Kindle Email\" (np. nazwa@kindle.com)\n3️⃣ Wklej ten email w Ustawieniach ReBook → Kindle email\n4️⃣ W ustawieniach Amazon → \"Approved Personal Document E-mail List\" dodaj adres email, z którego będziesz wysyłać (np. twój Gmail)\n\nPo konwersji zobaczysz przycisk \"Kindle\" — klikni go, a system otworzy Twoją aplikację email z wypełnionym adresem i załącznikiem.\n\nObsługiwane formaty: EPUB, PDF, MOBI, DOC.</string>
+    <string name="kindle_info_btn">ℹ️ Jak to działa?</string>
+
+    <!-- About -->
+    <string name="about_title">O ReBook</string>
+    <string name="about_version">Wersja %s</string>
+    <string name="about_body">ReBook — konwerter e-booków ze wsparciem AI.\n\n✨ Funkcje:\n• OCR — rozpoznawanie tekstu z PDF (ML Kit, Gemini, Mistral)\n• Korekcja AI — poprawa OCR z użyciem LLM\n• Tłumaczenie — na 27 języków z zachowaniem formatowania\n• Audiobook — generowanie audiobooka z edge-tts\n• Wysyłka na Kindle — przez email\n\n🔑 Wymagany klucz API:\nWejdź w Ustawienia ⚙️, wybierz dostawcę AI (Gemini, OpenAI, Mistral, itp.) i wklej swój klucz API.\n\nDarmowe klucze:\n• Gemini — aistudio.google.com (darmowy tier)\n• Mistral — console.mistral.ai (darmowy tier)\n\n📖 Kod źródłowy:\ngithub.com/realtek1990/rebook\n\n© 2024-2026 ReBook</string>
 </resources>

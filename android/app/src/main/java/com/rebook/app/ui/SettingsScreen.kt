@@ -221,17 +221,46 @@ fun SettingsScreen(
             Spacer(Modifier.height(16.dp))
 
             // ── Kindle Section ────────────────────────────────────────────
-            Text(
-                stringResource(R.string.settings_kindle_header),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(8.dp))
+            var showKindleInfo by remember { mutableStateOf(false) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.settings_kindle_header),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                TextButton(onClick = { showKindleInfo = true }) {
+                    Text(
+                        stringResource(R.string.kindle_info_btn),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
+            if (showKindleInfo) {
+                AlertDialog(
+                    onDismissRequest = { showKindleInfo = false },
+                    title = { Text(stringResource(R.string.kindle_info_title)) },
+                    text = { Text(stringResource(R.string.kindle_info_body)) },
+                    confirmButton = {
+                        TextButton(onClick = { showKindleInfo = false }) {
+                            Text("OK")
+                        }
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
 
             OutlinedTextField(
                 value = kindleEmail,
                 onValueChange = { kindleEmail = it },
                 label = { Text(stringResource(R.string.settings_kindle_email)) },
+                placeholder = { Text("nazwa@kindle.com") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
