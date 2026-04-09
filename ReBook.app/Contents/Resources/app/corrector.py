@@ -908,6 +908,25 @@ _OCR_PROMPT = (
     "6. Zwroc TYLKO tekst dokumentu w formacie Markdown."
 )
 
+_GEMINI_OCR_TRANSLATE_MODEL = "gemini-3.0-flash"
+
+def _ocr_translate_prompt(lang_to: str, lang_from: str = "") -> str:
+    """Prompt for combined OCR + translation in a single Gemini request."""
+    src = f" z języka {lang_from}" if lang_from else ""
+    return (
+        f"Wyciągnij cały tekst z tego dokumentu PDF i PRZETŁUMACZ go{src} "
+        f"na język {lang_to}. Zwróć wynik jako czysty Markdown.\n\n"
+        "Zasady:\n"
+        "1. Używaj # dla tytułów rozdziałów i ## dla podrozdziałów.\n"
+        "2. Każdy akapit oddziel pustą linią.\n"
+        "3. Zachowaj listy punktowane jako - item.\n"
+        "4. Zachowaj listy numerowane jako 1. item.\n"
+        "5. Przetłumacz ABSOLUTNIE WSZYSTKO — nagłówki, cytaty, podpisy, dialogi.\n"
+        "6. NIE zostawiaj niczego w oryginalnym języku (wyjątek: nazwy własne).\n"
+        "7. NIE dodawaj własnych komentarzy, podsumowań ani wstępów.\n"
+        "8. Zwróć TYLKO przetłumaczony tekst dokumentu w formacie Markdown."
+    )
+
 
 
 
@@ -1059,8 +1078,15 @@ def _gemini_ocr(
     pdf_path: str,
     config: dict = None,
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    translate_lang: str = "",
+    translate_from: str = "",
 ) -> str:
-    """OCR via Gemini native PDF API. Returns markdown text."""
+    """OCR via Gemini native PDF API. Optionally translates in the same request.
+    
+    If translate_lang is set, uses gemini-3.0-flash with combined OCR+translate prompt.
+    Otherwise uses configured model (default: gemini-2.5-flash-lite) for OCR only.
+    Returns markdown text (translated if translate_lang was set).
+    """
     import base64
     import urllib.request
     import urllib.error
@@ -1075,22 +1101,30 @@ def _gemini_ocr(
     if not key:
         raise RuntimeError("Brak klucza Gemini API dla Cloud OCR.")
 
-    configured_model = c["model"]
-    model = (configured_model if configured_model.startswith("gemini")
-             else _GEMINI_OCR_MODEL)
+    # Choose model + prompt based on whether we're also translating
+    if translate_lang:
+        model = _GEMINI_OCR_TRANSLATE_MODEL
+        prompt = _ocr_translate_prompt(translate_lang, translate_from)
+        mode_label = f"OCR + tłumaczenie → {translate_lang}"
+    else:
+        configured_model = c["model"]
+        model = (configured_model if configured_model.startswith("gemini")
+                 else _GEMINI_OCR_MODEL)
+        prompt = _OCR_PROMPT
+        mode_label = "OCR"
 
     pdf_bytes = Path(pdf_path).read_bytes()
     size_mb = len(pdf_bytes) / (1024 * 1024)
     base_url = "https://generativelanguage.googleapis.com/v1beta"
 
-    _report(10, f"Gemini Cloud OCR — {size_mb:.1f} MB...")
+    _report(10, f"Gemini {mode_label} — {size_mb:.1f} MB...")
 
     if size_mb <= _GEMINI_OCR_SIZE_MB:
         b64 = base64.b64encode(pdf_bytes).decode("ascii")
         payload = {
             "contents": [{"parts": [
                 {"inline_data": {"mime_type": "application/pdf", "data": b64}},
-                {"text": _OCR_PROMPT},
+                {"text": prompt},
             ]}],
             "generationConfig": {"temperature": 0.0, "maxOutputTokens": 65536},
         }
@@ -1137,7 +1171,7 @@ def _gemini_ocr(
         {"Content-Type": "application/json"}, method="POST"
     )
 
-    _report(50, "Gemini przetwarza dokument...")
+    _report(50, f"Gemini {mode_label}...")
     retries = 3
     for attempt in range(retries):
         try:
@@ -1162,7 +1196,7 @@ def _gemini_ocr(
     if not text:
         raise RuntimeError("Gemini OCR: pusta odpowiedz modelu")
     text = _strip_page_numbers(text)
-    _report(100, f"Gemini OCR zakonczone ({len(text):,} znakow)")
+    _report(100, f"Gemini {mode_label} zakończone ({len(text):,} znakow)")
     return text
 
 
@@ -1170,6 +1204,8 @@ def ocr_pdf(
     pdf_path: str,
     config: dict = None,
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    translate_lang: str = "",
+    translate_from: str = "",
 ) -> Optional[str]:
     """Unified OCR dispatcher for all desktop platforms.
 
@@ -1190,7 +1226,8 @@ def ocr_pdf(
         return _mistral_ocr(pdf_path, config, progress_callback)
 
     if prov == "gemini":
-        return _gemini_ocr(pdf_path, config, progress_callback)
+        return _gemini_ocr(pdf_path, config, progress_callback,
+                           translate_lang=translate_lang, translate_from=translate_from)
 
     if prov == "marker":
         return None  # explicit local mode
@@ -1208,7 +1245,8 @@ def ocr_pdf(
     # 2. Gemini (if llm_provider is gemini)
     if c["llm_provider"] == "gemini" and c["llm_api_key"]:
         try:
-            return _gemini_ocr(pdf_path, config, progress_callback)
+            return _gemini_ocr(pdf_path, config, progress_callback,
+                               translate_lang=translate_lang, translate_from=translate_from)
         except Exception:
             _report(0, "Gemini OCR niedostepny — uzywam Marker...")
 

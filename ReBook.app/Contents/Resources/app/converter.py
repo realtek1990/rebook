@@ -94,6 +94,8 @@ def convert_file(
 
     # ── Stage 1: Text Extraction / OCR ────────────────────────────────────
     ext = src.suffix.lower()
+    ocr_already_translated = False  # True when OCR+translate was done in one step
+
     if ext == ".md":
         report("ocr", 100, "Pominięto OCR — plik Markdown")
         md_text = src.read_text(encoding="utf-8")
@@ -108,12 +110,26 @@ def convert_file(
         cfg = corrector.get_config()
         cloud_text = None
         if corrector.is_cloud_ocr_available(cfg):
+            # Combined OCR+translate in one Gemini request (saves ~50% tokens)
+            ocr_cfg = corrector.get_ocr_config(cfg)
+            can_combine = (use_translate and lang_to
+                           and ocr_cfg.get("provider", "auto") in ("gemini", "auto")
+                           and ocr_cfg.get("llm_provider") == "gemini")
             try:
-                cloud_text = corrector.ocr_pdf(
-                    str(src), config=cfg, progress_callback=progress_callback
-                )
+                if can_combine:
+                    report("ocr", 5, f"OCR + tłumaczenie → {lang_to} (Gemini 3 Flash)…")
+                    cloud_text = corrector.ocr_pdf(
+                        str(src), config=cfg, progress_callback=progress_callback,
+                        translate_lang=lang_to, translate_from=lang_from,
+                    )
+                    ocr_already_translated = True
+                else:
+                    cloud_text = corrector.ocr_pdf(
+                        str(src), config=cfg, progress_callback=progress_callback
+                    )
             except Exception as e:
                 report("ocr", 0, f"⚠️ Cloud OCR nie powiodło się ({e}) — używam Marker…")
+                ocr_already_translated = False
         if cloud_text is not None:
             md_text = cloud_text
         else:
@@ -122,7 +138,7 @@ def convert_file(
 
     # ── Stage 2: AI Correction / Translation ──────────────────────────────
     md_original = md_text  # save original for verification pass
-    if use_llm:
+    if use_llm and not ocr_already_translated:
         label = "Tłumaczenie" if use_translate else "Korekcja AI"
         report("correction", 0, f"{label} — inicjalizacja…")
 
@@ -141,6 +157,8 @@ def convert_file(
             progress_callback=on_llm,
         )
         report("correction", 100, f"{label} zakończona")
+    elif ocr_already_translated:
+        report("correction", 100, "✅ Tłumaczenie wykonane podczas OCR (oszczędność ~50% tokenów)")
 
     # FIX Luka 1: Always deduplicate markdown after AI, regardless of translate/correct mode
     if use_llm:
