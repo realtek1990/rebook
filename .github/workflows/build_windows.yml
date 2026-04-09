@@ -164,11 +164,16 @@ jobs:
             ## ReBook
 
             ### 🍎 macOS
-            Pobierz `ReBook.dmg`, zamontuj, następnie otwórz Terminal i wklej:
+            Pobierz `ReBook.dmg`, zamontuj (dwuklik), następnie otwórz **Terminal** i wklej:
+            ```bash
+            cp -R /Volumes/ReBook/ReBook.app /Applications/ && xattr -cr /Applications/ReBook.app && open /Applications/ReBook.app
             ```
-            xattr -dr com.apple.quarantine /Volumes/ReBook/* && cp -R /Volumes/ReBook/ReBook.app /Applications/ && xattr -dr com.apple.quarantine /Applications/ReBook.app && open /Applications/ReBook.app
-            ```
-            (Jedna komenda — kopiuje, wyłącza blokadę Gatekeeper i uruchamia).
+            > ⚠️ macOS blokuje niepodpisane aplikacje. Powyższa komenda kopiuje do Aplikacji, usuwa blokadę i uruchamia.
+
+            Alternatywnie — krok po kroku:
+            1. Przeciągnij `ReBook.app` z DMG do `Applications`
+            2. Otwórz Terminal i wklej: `xattr -cr /Applications/ReBook.app`
+            3. Uruchom z Launchpada
 
             ### 🪟 Windows
             Pobierz `ReBook-Windows-Installer.exe` i uruchom.
