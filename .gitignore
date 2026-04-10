@@ -36,3 +36,5 @@ android/.gradle/
 android/build/
 *.apk
 *.aab
+dist/
+build/

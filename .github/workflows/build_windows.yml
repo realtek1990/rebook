@@ -127,7 +127,7 @@ jobs:
   # ═══════════════════════════════════════════════════════════════════════════
   build-macos:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: write
     if: startsWith(github.ref, 'refs/tags/v')
@@ -144,19 +144,32 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install pyobjc-framework-Cocoa
           pip install ebooklib markdown beautifulsoup4 markdownify Pillow PyMuPDF
-          pip install customtkinter litellm || true
+          pip install litellm google-genai edge-tts || true
 
-      - name: Build ReBook.dmg + ReBook.pkg
+      - name: Build ReBook.app with PyInstaller
         run: |
-          chmod +x build_dmg.sh
-          ./build_dmg.sh
-          ls -lh ReBook.dmg ReBook.pkg
+          python -m PyInstaller rebook_macos.spec --clean --noconfirm
+          ls -lh dist/ReBook.app/Contents/MacOS/ReBook
+          du -sh dist/ReBook.app
+
+      - name: Code sign and build DMG
+        run: |
+          # Ad-hoc sign
+          codesign --force --deep --sign - dist/ReBook.app
+          # Build DMG
+          mkdir -p .dmg_staging
+          cp -R dist/ReBook.app .dmg_staging/
+          ln -sf /Applications .dmg_staging/Applications
+          hdiutil create -volname ReBook -srcfolder .dmg_staging -ov -format UDZO ReBook.dmg
+          ls -lh ReBook.dmg
 
       - name: Publish macOS builds to GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: ReBook.dmg,ReBook.pkg
+          artifacts: ReBook.dmg
           allowUpdates: true
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
