@@ -1233,14 +1233,19 @@ def ocr_pdf(
         return None  # explicit local mode
 
     # "auto" — try best available, fall back silently
-    # 1. Mistral (best quality, check ocr_api_key first)
-    if c["api_key"] and (config.get("ocr_api_key") or
-                         c["provider"] == "mistral" or
-                         config.get("ocr_provider") == "mistral"):
+    # 1. Mistral OCR (if the user has a Mistral key — either as OCR key or main key)
+    mistral_key = config.get("ocr_api_key", "").strip() or (
+        c["llm_api_key"] if c["llm_provider"] == "mistral" else ""
+    )
+    if mistral_key:
         try:
-            return _mistral_ocr(pdf_path, config, progress_callback)
-        except Exception:
-            _report(0, "Mistral OCR niedostepny — probuje Gemini...")
+            # Temporarily set ocr key for _mistral_ocr
+            patched = dict(config)
+            if not patched.get("ocr_api_key"):
+                patched["ocr_api_key"] = mistral_key
+            return _mistral_ocr(pdf_path, patched, progress_callback)
+        except Exception as e:
+            _report(0, f"Mistral OCR niedostępny ({e}) — próbuję Gemini...")
 
     # 2. Gemini (if llm_provider is gemini)
     if c["llm_provider"] == "gemini" and c["llm_api_key"]:
@@ -1248,14 +1253,7 @@ def ocr_pdf(
             return _gemini_ocr(pdf_path, config, progress_callback,
                                translate_lang=translate_lang, translate_from=translate_from)
         except Exception:
-            _report(0, "Gemini OCR niedostepny — uzywam Marker...")
-
-    # 3. Mistral with main api_key (if provider is mistral)
-    if c["llm_provider"] == "mistral" and c["llm_api_key"] and not config.get("ocr_api_key"):
-        try:
-            return _mistral_ocr(pdf_path, config, progress_callback)
-        except Exception:
-            pass
+            _report(0, "Gemini OCR niedostępny — używam Marker...")
 
     return None  # fall back to Marker
 
