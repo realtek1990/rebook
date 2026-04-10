@@ -335,6 +335,29 @@ class AppDelegate(NSObject):
         cv.addSubview_(self._aiCheck)
         top -= 30
 
+        # ── Page Range (PDF only, hidden by default) ──────────────────
+        self._pageRangeView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 30, CW, 28))
+        self._pageRangeView.setHidden_(True)
+        prLbl = _label("📄 Zakres stron:", size=11, color=NSColor.secondaryLabelColor())
+        prLbl.setFrame_(NSMakeRect(0, 6, 90, 16))
+        self._pageRangeView.addSubview_(prLbl)
+        self._pageStartField = NSTextField.alloc().initWithFrame_(NSMakeRect(92, 2, 60, 22))
+        self._pageStartField.setPlaceholderString_("Od")
+        self._pageStartField.setFont_(NSFont.systemFontOfSize_(11))
+        self._pageRangeView.addSubview_(self._pageStartField)
+        dashLbl = _label("–", size=13)
+        dashLbl.setFrame_(NSMakeRect(155, 6, 10, 16))
+        self._pageRangeView.addSubview_(dashLbl)
+        self._pageEndField = NSTextField.alloc().initWithFrame_(NSMakeRect(168, 2, 60, 22))
+        self._pageEndField.setPlaceholderString_("Do")
+        self._pageEndField.setFont_(NSFont.systemFontOfSize_(11))
+        self._pageRangeView.addSubview_(self._pageEndField)
+        self._pageCountLabel = _label("", size=10, color=NSColor.tertiaryLabelColor())
+        self._pageCountLabel.setFrame_(NSMakeRect(236, 6, 180, 16))
+        self._pageRangeView.addSubview_(self._pageCountLabel)
+        cv.addSubview_(self._pageRangeView)
+        top -= 32
+
         self._translateCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 22, CW, 20))
         self._translateCheck.setButtonType_(NSSwitchButton)
         self._translateCheck.setTitle_(t("translate_check"))
@@ -709,6 +732,18 @@ class AppDelegate(NSObject):
             self._dropView.setHidden_(True)
             self._fileBadgeView.setHidden_(False)
             self._convertBtn.setEnabled_(True)
+            # Show page range panel for PDFs
+            is_pdf = p.suffix.lower() == ".pdf"
+            self._pageRangeView.setHidden_(not is_pdf)
+            if is_pdf:
+                try:
+                    import corrector
+                    total = corrector.get_pdf_page_count(str(p))
+                    self._pageCountLabel.setStringValue_(f"(z {total} stron)")
+                    self._pageStartField.setStringValue_("")
+                    self._pageEndField.setStringValue_("")
+                except Exception:
+                    self._pageCountLabel.setStringValue_("")
         except Exception as e:
             self._showAlert(t("error_prefix"), str(e))
 
@@ -874,7 +909,20 @@ class AppDelegate(NSObject):
         lang_from = str(self._langFromField.stringValue()) if translate else ""
         lang_to = str(self._langToField.stringValue()) if translate else "polski"
 
-        args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to)
+        # Page range (PDF only)
+        page_start = 0
+        page_end = 0
+        try:
+            ps_str = str(self._pageStartField.stringValue()).strip()
+            pe_str = str(self._pageEndField.stringValue()).strip()
+            if ps_str:
+                page_start = int(ps_str)
+            if pe_str:
+                page_end = int(pe_str)
+        except (ValueError, AttributeError):
+            pass
+
+        args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start, page_end)
         threading.Thread(target=self._runConversion, args=args, daemon=True).start()
 
     @objc.IBAction
@@ -1067,7 +1115,7 @@ class AppDelegate(NSObject):
                 pass
 
     @objc.python_method
-    def _runConversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to):
+    def _runConversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0):
         import converter
         try:
             # Pass cancel_flag checker as part of progress callback
@@ -1086,6 +1134,8 @@ class AppDelegate(NSObject):
                 lang_from=lang_from,
                 lang_to=lang_to,
                 progress_callback=_progress_with_cancel,
+                page_start=page_start,
+                page_end=page_end,
             )
             self._scheduleUI("_conversionDone", result)
         except InterruptedError:

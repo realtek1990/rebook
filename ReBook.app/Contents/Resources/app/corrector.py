@@ -910,6 +910,60 @@ _OCR_PROMPT = (
 
 _GEMINI_OCR_TRANSLATE_MODEL = "gemini-3.0-flash"
 
+
+def _get_pdf_page_count(pdf_path: str) -> int:
+    """Get total page count of a PDF using fitz or pypdf."""
+    try:
+        import fitz
+        doc = fitz.open(pdf_path)
+        count = len(doc)
+        doc.close()
+        return count
+    except ImportError:
+        pass
+    try:
+        from pypdf import PdfReader
+        return len(PdfReader(pdf_path).pages)
+    except ImportError:
+        return 0  # unknown
+
+
+def _split_pdf_pages(pdf_path: str, page_start: int, page_end: int) -> bytes:
+    """Extract pages [page_start, page_end] (1-indexed, inclusive) from a PDF.
+    Returns the extracted pages as PDF bytes."""
+    import tempfile
+    # Convert to 0-indexed
+    p0 = page_start - 1
+    p1 = page_end  # exclusive for range
+
+    try:
+        import fitz
+        src = fitz.open(pdf_path)
+        dst = fitz.open()  # new empty PDF
+        dst.insert_pdf(src, from_page=p0, to_page=page_end - 1)  # inclusive
+        pdf_bytes = dst.tobytes()
+        dst.close()
+        src.close()
+        return pdf_bytes
+    except ImportError:
+        pass
+
+    from pypdf import PdfReader, PdfWriter
+    reader = PdfReader(pdf_path)
+    writer = PdfWriter()
+    for i in range(p0, min(p1, len(reader.pages))):
+        writer.add_page(reader.pages[i])
+    import io
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def get_pdf_page_count(pdf_path: str) -> int:
+    """Public wrapper for GUI to show page count."""
+    return _get_pdf_page_count(pdf_path)
+
+
 def _ocr_translate_prompt(lang_to: str, lang_from: str = "") -> str:
     """Prompt for combined OCR + translation in a single Gemini request."""
     src = f" z języka {lang_from}" if lang_from else ""
@@ -1000,33 +1054,12 @@ def get_ocr_provider_display(config: dict = None) -> str:
     return names.get(prov, prov)
 
 
-def _mistral_ocr(
-    pdf_path: str,
-    config: dict = None,
-    progress_callback: Optional[Callable[[str, int, str], None]] = None,
-) -> str:
-    """OCR via Mistral OCR API. Returns markdown text."""
+def _mistral_ocr_single(key: str, model: str, pdf_bytes: bytes, timeout: int = 600) -> list:
+    """Send a single PDF chunk to Mistral OCR. Returns list of page dicts."""
     import base64
     import urllib.request
     import urllib.error
     import json as _json
-
-    def _report(pct: int, msg: str):
-        if progress_callback:
-            progress_callback("ocr", pct, msg)
-
-    c = get_ocr_config(config)
-    key = c["api_key"]
-    if not key:
-        raise RuntimeError(
-            "Brak klucza Mistral OCR!\n"
-            "Wejdz w Ustawienia (OCR) i wklej klucz Mistral API."
-        )
-    model = c["model"] or _MISTRAL_OCR_MODEL
-
-    pdf_bytes = Path(pdf_path).read_bytes()
-    size_mb = len(pdf_bytes) / (1024 * 1024)
-    _report(10, f"Mistral OCR — {size_mb:.1f} MB...")
 
     b64 = base64.b64encode(pdf_bytes).decode("ascii")
     payload = {
@@ -1044,18 +1077,16 @@ def _mistral_ocr(
         {"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
     )
 
-    _report(30, "Mistral OCR przetwarza dokument...")
     retries = 3
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 result = _json.loads(resp.read())
-            break
+            return result.get("pages", [])
         except urllib.error.HTTPError as e:
             err = e.read().decode(errors="replace")
             if attempt < retries - 1 and e.code in (429, 500, 503):
                 time.sleep(10 * (attempt + 1))
-                _report(30, f"Ponawiam ({attempt+2}/{retries})...")
                 continue
             raise RuntimeError(f"Mistral OCR error {e.code}: {err[:300]}")
         except Exception as exc:
@@ -1063,14 +1094,79 @@ def _mistral_ocr(
                 time.sleep(5)
                 continue
             raise RuntimeError(f"Mistral OCR network error: {exc}")
+    return []
 
-    pages = result.get("pages", [])
-    if not pages:
-        raise RuntimeError("Mistral OCR: brak stron w odpowiedzi")
 
-    text = "\n\n".join(p.get("markdown", "") for p in pages).strip()
+def _mistral_ocr(
+    pdf_path: str,
+    config: dict = None,
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    page_start: int = 0,
+    page_end: int = 0,
+) -> str:
+    """OCR via Mistral OCR API. Supports page ranges for large PDFs.
+    
+    Args:
+        page_start: First page (1-indexed, 0 = from beginning)
+        page_end: Last page (1-indexed, 0 = to end)
+    """
+    def _report(pct: int, msg: str):
+        if progress_callback:
+            progress_callback("ocr", pct, msg)
+
+    c = get_ocr_config(config)
+    key = c["api_key"]
+    if not key:
+        raise RuntimeError(
+            "Brak klucza Mistral OCR!\n"
+            "Wejdz w Ustawienia (OCR) i wklej klucz Mistral API."
+        )
+    model = c["model"] or _MISTRAL_OCR_MODEL
+
+    total_pages = _get_pdf_page_count(pdf_path)
+    ps = max(page_start, 1) if page_start else 1
+    pe = min(page_end, total_pages) if page_end else total_pages
+
+    if ps > 1 or pe < total_pages:
+        _report(5, f"Mistral OCR — strony {ps}–{pe} z {total_pages}...")
+        pdf_bytes = _split_pdf_pages(pdf_path, ps, pe)
+    else:
+        pdf_bytes = Path(pdf_path).read_bytes()
+
+    size_mb = len(pdf_bytes) / (1024 * 1024)
+    page_count = pe - ps + 1
+    _report(10, f"Mistral OCR — {page_count} stron, {size_mb:.1f} MB...")
+
+    # For large PDFs (>100 pages), process in segments to avoid timeouts
+    SEGMENT_SIZE = 100  # pages per API call
+    if page_count > SEGMENT_SIZE:
+        all_pages_md = []
+        num_segments = (page_count + SEGMENT_SIZE - 1) // SEGMENT_SIZE
+        for seg_idx in range(num_segments):
+            seg_start = ps + seg_idx * SEGMENT_SIZE
+            seg_end = min(ps + (seg_idx + 1) * SEGMENT_SIZE - 1, pe)
+            seg_pct = int(10 + 80 * seg_idx / num_segments)
+            _report(seg_pct, f"Mistral OCR — segment {seg_idx+1}/{num_segments} "
+                             f"(strony {seg_start}–{seg_end})...")
+            seg_bytes = _split_pdf_pages(pdf_path, seg_start, seg_end)
+            pages = _mistral_ocr_single(key, model, seg_bytes)
+            for p in pages:
+                md = p.get("markdown", "")
+                if md.strip():
+                    all_pages_md.append(md)
+            # Rate limit courtesy
+            if seg_idx < num_segments - 1:
+                time.sleep(2)
+        text = "\n\n".join(all_pages_md).strip()
+    else:
+        _report(30, "Mistral OCR przetwarza dokument...")
+        pages = _mistral_ocr_single(key, model, pdf_bytes)
+        if not pages:
+            raise RuntimeError("Mistral OCR: brak stron w odpowiedzi")
+        text = "\n\n".join(p.get("markdown", "") for p in pages).strip()
+
     text = _strip_page_numbers(text)
-    _report(100, f"Mistral OCR zakonczone ({len(pages)} stron, {len(text):,} znakow)")
+    _report(100, f"Mistral OCR zakończone ({page_count} stron, {len(text):,} znaków)")
     return text
 
 
@@ -1080,12 +1176,11 @@ def _gemini_ocr(
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
     translate_lang: str = "",
     translate_from: str = "",
+    page_start: int = 0,
+    page_end: int = 0,
 ) -> str:
     """OCR via Gemini native PDF API. Optionally translates in the same request.
-    
-    If translate_lang is set, uses gemini-3.0-flash with combined OCR+translate prompt.
-    Otherwise uses configured model (default: gemini-2.5-flash-lite) for OCR only.
-    Returns markdown text (translated if translate_lang was set).
+    Supports page ranges for large PDFs.
     """
     import base64
     import urllib.request
@@ -1113,7 +1208,17 @@ def _gemini_ocr(
         prompt = _OCR_PROMPT
         mode_label = "OCR"
 
-    pdf_bytes = Path(pdf_path).read_bytes()
+    # Extract page range if specified
+    total_pages = _get_pdf_page_count(pdf_path)
+    ps = max(page_start, 1) if page_start else 1
+    pe = min(page_end, total_pages) if page_end else total_pages
+
+    if ps > 1 or pe < total_pages:
+        _report(5, f"Gemini {mode_label} — strony {ps}–{pe} z {total_pages}...")
+        pdf_bytes = _split_pdf_pages(pdf_path, ps, pe)
+    else:
+        pdf_bytes = Path(pdf_path).read_bytes()
+
     size_mb = len(pdf_bytes) / (1024 * 1024)
     base_url = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -1160,7 +1265,7 @@ def _gemini_ocr(
         payload = {
             "contents": [{"parts": [
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
-                {"text": _OCR_PROMPT},
+                {"text": prompt},
             ]}],
             "generationConfig": {"temperature": 0.0, "maxOutputTokens": 65536},
         }
@@ -1196,7 +1301,8 @@ def _gemini_ocr(
     if not text:
         raise RuntimeError("Gemini OCR: pusta odpowiedz modelu")
     text = _strip_page_numbers(text)
-    _report(100, f"Gemini {mode_label} zakończone ({len(text):,} znakow)")
+    page_count = pe - ps + 1
+    _report(100, f"Gemini {mode_label} zakończone ({page_count} stron, {len(text):,} znaków)")
     return text
 
 
@@ -1206,8 +1312,14 @@ def ocr_pdf(
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
     translate_lang: str = "",
     translate_from: str = "",
+    page_start: int = 0,
+    page_end: int = 0,
 ) -> Optional[str]:
     """Unified OCR dispatcher for all desktop platforms.
+
+    Args:
+        page_start: First page to OCR (1-indexed, 0 = from beginning)
+        page_end: Last page to OCR (1-indexed, 0 = to end)
 
     Returns:
         str  — extracted markdown text (cloud OCR succeeded)
@@ -1223,11 +1335,13 @@ def ocr_pdf(
             progress_callback("ocr", pct, msg)
 
     if prov == "mistral":
-        return _mistral_ocr(pdf_path, config, progress_callback)
+        return _mistral_ocr(pdf_path, config, progress_callback,
+                            page_start=page_start, page_end=page_end)
 
     if prov == "gemini":
         return _gemini_ocr(pdf_path, config, progress_callback,
-                           translate_lang=translate_lang, translate_from=translate_from)
+                           translate_lang=translate_lang, translate_from=translate_from,
+                           page_start=page_start, page_end=page_end)
 
     if prov == "marker":
         return None  # explicit local mode
@@ -1239,11 +1353,11 @@ def ocr_pdf(
     )
     if mistral_key:
         try:
-            # Temporarily set ocr key for _mistral_ocr
             patched = dict(config)
             if not patched.get("ocr_api_key"):
                 patched["ocr_api_key"] = mistral_key
-            return _mistral_ocr(pdf_path, patched, progress_callback)
+            return _mistral_ocr(pdf_path, patched, progress_callback,
+                                page_start=page_start, page_end=page_end)
         except Exception as e:
             _report(0, f"Mistral OCR niedostępny ({e}) — próbuję Gemini...")
 
@@ -1251,7 +1365,8 @@ def ocr_pdf(
     if c["llm_provider"] == "gemini" and c["llm_api_key"]:
         try:
             return _gemini_ocr(pdf_path, config, progress_callback,
-                               translate_lang=translate_lang, translate_from=translate_from)
+                               translate_lang=translate_lang, translate_from=translate_from,
+                               page_start=page_start, page_end=page_end)
         except Exception:
             _report(0, "Gemini OCR niedostępny — używam Marker...")
 

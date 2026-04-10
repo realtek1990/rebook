@@ -400,6 +400,30 @@ class ReBookApp:
                         text_color=("gray10", "gray90")).pack(
             anchor="w", padx=28, pady=4)
 
+        # Page range (PDF only, hidden by default)
+        self._page_range_frame = ctk.CTkFrame(f, fg_color="transparent")
+        pr_lbl = ctk.CTkLabel(self._page_range_frame, text="📄 Zakres stron:",
+                              font=ctk.CTkFont(size=11),
+                              text_color=("gray30", "gray70"))
+        pr_lbl.pack(side="left", padx=(0, 6))
+        self._page_start_var = ctk.StringVar(value="")
+        self._page_start_entry = ctk.CTkEntry(self._page_range_frame, width=60,
+                                              placeholder_text="Od",
+                                              textvariable=self._page_start_var)
+        self._page_start_entry.pack(side="left", padx=2)
+        ctk.CTkLabel(self._page_range_frame, text="–",
+                     font=ctk.CTkFont(size=13)).pack(side="left", padx=2)
+        self._page_end_var = ctk.StringVar(value="")
+        self._page_end_entry = ctk.CTkEntry(self._page_range_frame, width=60,
+                                            placeholder_text="Do",
+                                            textvariable=self._page_end_var)
+        self._page_end_entry.pack(side="left", padx=2)
+        self._page_count_label = ctk.CTkLabel(self._page_range_frame, text="",
+                                              font=ctk.CTkFont(size=10),
+                                              text_color=("gray50", "gray60"))
+        self._page_count_label.pack(side="left", padx=(8, 0))
+        # Hidden initially — shown when a PDF is selected
+
         # Translation mode
         self._translate_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(f, text=t("translate_check"), variable=self._translate_var,
@@ -624,6 +648,22 @@ class ReBookApp:
         self._file_label.pack(anchor="w", padx=12, pady=(10, 0))
         self._size_label.pack(anchor="w", padx=12)
         self._remove_btn.pack(anchor="e", padx=12, pady=(0, 8))
+
+        # Show page range panel for PDFs
+        is_pdf = p.suffix.lower() == ".pdf"
+        if is_pdf:
+            self._page_range_frame.pack(fill="x", padx=28, pady=4)
+            try:
+                sys.path.insert(0, str(APP_DIR))
+                import corrector
+                total = corrector.get_pdf_page_count(str(p))
+                self._page_count_label.configure(text=f"(z {total} stron)")
+            except Exception:
+                self._page_count_label.configure(text="")
+            self._page_start_var.set("")
+            self._page_end_var.set("")
+        else:
+            self._page_range_frame.pack_forget()
 
         self._convert_btn.configure(state="normal")
         self._result_frame.pack_forget()
@@ -994,6 +1034,21 @@ class ReBookApp:
         lang_to = self._lang_to.get() if translate else "polski"
 
         args = (str(self._selected_file), fmt, use_llm, translate, translate_images, verify, lang_from, lang_to)
+
+        # Page range (PDF only)
+        page_start = 0
+        page_end = 0
+        try:
+            ps = self._page_start_var.get().strip()
+            pe = self._page_end_var.get().strip()
+            if ps:
+                page_start = int(ps)
+            if pe:
+                page_end = int(pe)
+        except (ValueError, AttributeError):
+            pass
+
+        args = args + (page_start, page_end)
         threading.Thread(target=self._run_conversion, args=args, daemon=True).start()
 
     def _stop_conversion(self):
@@ -1002,7 +1057,7 @@ class ReBookApp:
         self._stage_label.configure(text="⛔ Zatrzymywanie…")
         self._append_log("⛔ Zatrzymywanie konwersji…")
 
-    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to):
+    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to, page_start=0, page_end=0):
         try:
             import converter
 
@@ -1021,6 +1076,8 @@ class ReBookApp:
                 lang_from=lang_from,
                 lang_to=lang_to,
                 progress_callback=_progress_with_cancel,
+                page_start=page_start,
+                page_end=page_end,
             )
             self._ui_queue.put(("done", result))
         except InterruptedError:

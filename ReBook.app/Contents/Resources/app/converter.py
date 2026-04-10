@@ -64,6 +64,8 @@ def convert_file(
     lang_from: str = "",
     lang_to: str = "polski",
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    page_start: int = 0,
+    page_end: int = 0,
 ) -> str:
     """Run the full conversion pipeline synchronously.
 
@@ -75,6 +77,8 @@ def convert_file(
         lang_from: Source language (empty = auto-detect).
         lang_to: Target language.
         progress_callback: ``fn(stage, percent, message)`` called on updates.
+        page_start: First PDF page to process (1-indexed, 0 = from beginning).
+        page_end: Last PDF page to process (1-indexed, 0 = to end).
 
     Returns:
         Absolute path to the output file.
@@ -121,11 +125,13 @@ def convert_file(
                     cloud_text = corrector.ocr_pdf(
                         str(src), config=cfg, progress_callback=progress_callback,
                         translate_lang=lang_to, translate_from=lang_from,
+                        page_start=page_start, page_end=page_end,
                     )
                     ocr_already_translated = True
                 else:
                     cloud_text = corrector.ocr_pdf(
-                        str(src), config=cfg, progress_callback=progress_callback
+                        str(src), config=cfg, progress_callback=progress_callback,
+                        page_start=page_start, page_end=page_end,
                     )
             except Exception as e:
                 report("ocr", 0, f"⚠️ Cloud OCR nie powiodło się ({e}) — używam Marker…")
