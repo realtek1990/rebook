@@ -750,8 +750,24 @@ class AppDelegate(NSObject):
 
     @objc.python_method
     def _doInstallMarker(self):
-        import subprocess, sys
-        venv_pip = Path.home() / ".pdf2epub-app" / "env" / "bin" / "pip"
+        import subprocess, shutil
+        venv_dir = Path.home() / ".pdf2epub-app" / "env"
+        venv_pip = venv_dir / "bin" / "pip"
+
+        # If no venv exists (e.g. PyInstaller frozen mode), create one
+        if not venv_pip.exists():
+            sys_python = shutil.which("python3") or shutil.which("python")
+            if not sys_python:
+                self._scheduleUI("_markerInstallError",
+                    "python3 not found. Install Xcode CLT: xcode-select --install")
+                return
+            try:
+                subprocess.run([sys_python, "-m", "venv", str(venv_dir)],
+                               check=True, capture_output=True, timeout=60)
+            except Exception as e:
+                self._scheduleUI("_markerInstallError", f"venv creation failed: {e}")
+                return
+
         try:
             result = subprocess.run(
                 [str(venv_pip), "install", "marker-pdf"],

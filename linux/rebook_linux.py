@@ -640,7 +640,7 @@ class ReBookApp:
 
         def _save():
             idx = prov_names.index(prov_var.get()) if prov_var.get() in prov_names else 0
-            ocr_idx = ocr_providers_keys.index(ocr_prov_var.get()) if ocr_prov_var.get() in ocr_providers_display else 0
+            ocr_idx = ocr_providers_display.index(ocr_prov_var.get()) if ocr_prov_var.get() in ocr_providers_display else 0
             save_config({
                 "llm_provider": prov_keys[idx],
                 "model_name": model_var.get(),
@@ -665,18 +665,48 @@ class ReBookApp:
         """Install Marker OCR via pip on Linux."""
         btn.configure(state="disabled", text=t("settings_marker_installing"))
         def _do():
-            # Find pip: try venv first, then system PATH
-            venv_pip = WORKSPACE / "env" / "bin" / "pip"
+            import shutil as _sh
+            venv_dir = WORKSPACE / "env"
+            venv_pip = venv_dir / "bin" / "pip"
+
+            # If no venv exists (e.g. PyInstaller frozen mode), create one
+            if not venv_pip.exists():
+                win.after(0, lambda: status_label.configure(
+                    text="⏳ Tworzenie środowiska Python...", text_color="orange"
+                ))
+                # Find a system python3 to create venv with
+                sys_python = _sh.which("python3") or _sh.which("python")
+                if not sys_python:
+                    win.after(0, lambda: (
+                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
+                        status_label.configure(
+                            text="❌ python3 not found. Install: sudo apt install python3 python3-venv",
+                            text_color="red"),
+                    ))
+                    return
+                try:
+                    subprocess.run([sys_python, "-m", "venv", str(venv_dir)],
+                                   check=True, capture_output=True, timeout=60)
+                except Exception as e:
+                    win.after(0, lambda: (
+                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
+                        status_label.configure(
+                            text=f"❌ venv creation failed: {e}",
+                            text_color="red"),
+                    ))
+                    return
+
+            # Now we have a venv with pip
             if venv_pip.exists():
                 pip = str(venv_pip)
             else:
-                import shutil as _sh
                 pip = _sh.which("pip") or _sh.which("pip3")
+
             if not pip:
                 win.after(0, lambda: (
                     btn.configure(state="normal", text=t("settings_marker_install_btn")),
                     status_label.configure(
-                        text="❌ pip not found. Install: sudo apt install python3-pip",
+                        text="❌ pip not found. Install: sudo apt install python3-pip python3-venv",
                         text_color="red"),
                 ))
                 return

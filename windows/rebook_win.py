@@ -766,7 +766,7 @@ class ReBookApp:
 
         def _save():
             idx = prov_names.index(prov_var.get()) if prov_var.get() in prov_names else 0
-            ocr_idx = ocr_providers_keys.index(ocr_prov_var.get()) if ocr_prov_var.get() in ocr_providers_display else 0
+            ocr_idx = ocr_providers_display.index(ocr_prov_var.get()) if ocr_prov_var.get() in ocr_providers_display else 0
             save_config({
                 "llm_provider": prov_keys[idx],
                 "model_name": model_var.get(),
