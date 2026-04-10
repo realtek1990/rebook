@@ -9,6 +9,7 @@ import com.rebook.app.ConversionService
 import com.rebook.app.data.AppConfig
 import com.rebook.app.data.AppConfigStore
 import com.rebook.app.domain.Converter
+import com.rebook.app.domain.OcrEngine
 import com.rebook.app.domain.TtsEngine
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -34,6 +35,11 @@ data class ConversionState(
     val outputPath: String? = null,
     val error: String? = null,
     val config: AppConfig = AppConfig(),
+    // ── Page range (PDF only) ─────────────────────────────────────────
+    val pageStart: String = "",
+    val pageEnd: String = "",
+    val totalPageCount: Int = 0,
+    val isPdf: Boolean = false,
     // ── Audiobook TTS ────────────────────────────────────────────────
     val ttsVoice: String = "pl-PL-MarekNeural",
     val isGeneratingAudiobook: Boolean = false,
@@ -71,6 +77,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun setFile(uri: Uri, name: String, size: Long) {
+        val isPdf = name.endsWith(".pdf", ignoreCase = true)
         _state.update {
             it.copy(
                 selectedFileUri = uri,
@@ -78,7 +85,26 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                 selectedFileSize = formatSize(size),
                 outputPath = null,
                 error = null,
+                isPdf = isPdf,
+                pageStart = "",
+                pageEnd = "",
+                totalPageCount = 0,
             )
+        }
+        // Detect page count for PDFs
+        if (isPdf) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val app = getApplication<android.app.Application>()
+                    val cacheDir = File(app.cacheDir, "rebook_convert").also { it.mkdirs() }
+                    val tmpFile = File(cacheDir, name)
+                    app.contentResolver.openInputStream(uri)?.use { inp ->
+                        tmpFile.outputStream().use { inp.copyTo(it) }
+                    }
+                    val count = OcrEngine.getPdfPageCount(app, tmpFile)
+                    _state.update { it.copy(totalPageCount = count) }
+                } catch (_: Exception) { /* ignore */ }
+            }
         }
     }
 
@@ -95,6 +121,8 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     fun setLangFrom(v: String) { _state.update { it.copy(langFrom = v) } }
     fun setLangTo(v: String) { _state.update { it.copy(langTo = v) } }
     fun setVerify(v: Boolean) { _state.update { it.copy(verify = v) } }
+    fun setPageStart(v: String) { _state.update { it.copy(pageStart = v) } }
+    fun setPageEnd(v: String) { _state.update { it.copy(pageEnd = v) } }
     // Pipeline
     fun setPipelineAutoAudiobook(v: Boolean) { _state.update { it.copy(pipelineAutoAudiobook = v) } }
     fun setPipelineAudiobookVoice(v: String) { _state.update { it.copy(pipelineAudiobookVoice = v, ttsVoice = v) } }
@@ -133,6 +161,8 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     langFrom = _state.value.langFrom,
                     langTo = _state.value.langTo,
                     verify = _state.value.verify,
+                    pageStart = _state.value.pageStart.toIntOrNull() ?: 0,
+                    pageEnd = _state.value.pageEnd.toIntOrNull() ?: 0,
                 )
 
                 val result = Converter.convert(

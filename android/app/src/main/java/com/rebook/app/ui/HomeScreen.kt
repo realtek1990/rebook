@@ -197,6 +197,53 @@ fun HomeScreen(
                 Text(stringResource(R.string.ai_check), style = MaterialTheme.typography.bodyMedium)
             }
 
+            // Page range (PDF only)
+            AnimatedVisibility(visible = state.isPdf) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            "📄 Zakres stron:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedTextField(
+                            value = state.pageStart,
+                            onValueChange = { viewModel.setPageStart(it.filter { c -> c.isDigit() }) },
+                            label = { Text("Od") },
+                            modifier = Modifier.width(72.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                        Text("–", style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(
+                            value = state.pageEnd,
+                            onValueChange = { viewModel.setPageEnd(it.filter { c -> c.isDigit() }) },
+                            label = { Text("Do") },
+                            modifier = Modifier.width(72.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                        if (state.totalPageCount > 0) {
+                            Text(
+                                "(z ${state.totalPageCount})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
+            }
+
             // Translation
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = state.translate, onCheckedChange = { viewModel.setTranslate(it) })

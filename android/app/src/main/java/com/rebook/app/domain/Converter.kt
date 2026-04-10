@@ -23,6 +23,8 @@ object Converter {
         val langFrom: String = "",
         val langTo: String = "polski",
         val verify: Boolean = false,
+        val pageStart: Int = 0,
+        val pageEnd: Int = 0,
     )
 
     /**
@@ -54,7 +56,10 @@ object Converter {
                     else      -> "OCR"
                 }
                 onProgress("ocr", 5, "$ocrLabel: uruchamianie\u2026")
-                OcrEngine.ocrPdf(context, inputFile, config) { pct, msg ->
+                OcrEngine.ocrPdf(context, inputFile, config,
+                    pageStart = params.pageStart,
+                    pageEnd = params.pageEnd,
+                ) { pct, msg ->
                     onProgress("ocr", pct, msg)
                 }
             }
