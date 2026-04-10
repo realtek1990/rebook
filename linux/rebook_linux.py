@@ -535,7 +535,8 @@ class ReBookApp:
         win.title(t("settings_title"))
         win.geometry("460x680")
         win.resizable(False, False)
-        win.grab_set()
+        # On Linux, CTkToplevel may render empty if grab_set() is called
+        # before widgets are packed. We call it at the end instead.
 
         cfg = load_config()
 
@@ -655,6 +656,10 @@ class ReBookApp:
         ctk.CTkButton(btn_row, text=t("settings_save"), command=_save).pack(side="right", padx=4)
         ctk.CTkButton(btn_row, text=t("settings_cancel"), fg_color="gray50",
                       command=win.destroy).pack(side="right", padx=4)
+
+        # Finalize window — grab_set AFTER all widgets are packed (fixes empty window on Linux)
+        win.update()
+        win.after(100, lambda: (win.lift(), win.focus_force(), win.grab_set()))
 
     def _install_marker_linux(self, win, btn, status_label):
         """Install Marker OCR via pip on Linux."""
