@@ -270,6 +270,7 @@ def correct_markdown(
                 
         # Track which segments failed so we can retry them
         failed_indices = []
+        _first_error = [None]
         for future in as_completed(futures):
             i, original = futures[future]
             try:
@@ -281,6 +282,14 @@ def correct_markdown(
                     failed_indices.append(i)
             except Exception as e:
                 failed_indices.append(i)
+                if _first_error[0] is None:
+                    _first_error[0] = str(e)
+                    if progress_callback:
+                        err_msg = str(e)[:150]
+                        if any(k in err_msg.lower() for k in ("401", "403", "invalid", "api_key", "unauthorized")):
+                            progress_callback(done_count, total, f"🔑 Błąd klucza API: {err_msg}")
+                        else:
+                            progress_callback(done_count, total, f"❌ Błąd API: {err_msg}")
                 
             done_count += 1
             if progress_callback:
@@ -1697,12 +1706,30 @@ def _gemini_ocr_pages(
     results = {}  # page_idx → text
     collected_images = {}  # filename → bytes
     failed = []
+    failed_errors = {}  # page_idx → error message
     done_count = [0]
+    _abort_flag = [False]  # early abort on auth errors
+    _first_error_msg = [None]  # capture first error for UI
 
     import threading
     lock = threading.Lock()
 
+    def _classify_error(e):
+        """Classify error: 'auth', 'safety', 'rate', or 'other'."""
+        msg = str(e).lower()
+        if any(k in msg for k in ("401", "403", "invalid", "api_key", "unauthorized", "permission")):
+            return "auth", f"🔑 Nieprawidłowy klucz API: {str(e)[:120]}"
+        if any(k in msg for k in ("429", "rate", "quota", "resource_exhausted")):
+            return "rate", f"⏱ Limit API wyczerpany: {str(e)[:120]}"
+        if any(k in msg for k in ("safety", "prohibited", "blocked")):
+            return "safety", f"🛡 Zablokowane przez filtr bezpieczeństwa"
+        if any(k in msg for k in ("timeout", "timed out")):
+            return "timeout", f"⏳ Timeout: {str(e)[:80]}"
+        return "other", f"❌ Błąd: {str(e)[:120]}"
+
     def _process_page(page_idx):
+        if _abort_flag[0]:
+            return page_idx, "", Exception("aborted")
         try:
             text, usage = _call_gemini_page(key, model, page_images[page_idx], prompt)
             return page_idx, text, None
@@ -1715,9 +1742,22 @@ def _gemini_ocr_pages(
             page_idx, text, err = f.result()
 
             if err:
+                err_class, err_msg = _classify_error(err)
                 failed.append(page_idx)
+                failed_errors[page_idx] = err_msg
+
+                with lock:
+                    if _first_error_msg[0] is None:
+                        _first_error_msg[0] = err_msg
+                        _report(10, err_msg)
+                    # Auth/key errors → abort all remaining pages
+                    if err_class == "auth" and not _abort_flag[0]:
+                        _abort_flag[0] = True
+                        _report(10, "⛔ Przerwano — napraw klucz API w ustawieniach (⚙️)")
+
             elif not text or len(text.strip()) < 5:
                 failed.append(page_idx)
+                failed_errors[page_idx] = "📄 Pusta odpowiedź (< 5 znaków)"
             else:
                 # Check for illustration markers
                 stripped = text.strip()
@@ -1745,6 +1785,7 @@ def _gemini_ocr_pages(
                     # Verify translation with langdetect
                     if translate_lang and not _verify_page_local(text, translate_lang):
                         failed.append(page_idx)
+                        failed_errors[page_idx] = "🌐 Weryfikacja języka nie przeszła"
                     else:
                         results[page_idx] = text
 
@@ -1755,8 +1796,19 @@ def _gemini_ocr_pages(
                     _report(pct, f"🚀 {mode}: {done_count[0]}/{page_count} stron…")
 
     # ── Step 5: Retry failed pages (PARALLEL) ─────────────────────────────
-    if failed:
+    if failed and not _abort_flag[0]:
+        # Show error summary before retrying
+        error_types = {}
+        for idx in failed:
+            reason = failed_errors.get(idx, "nieznany")
+            error_types[reason] = error_types.get(reason, 0) + 1
+        for reason, count in error_types.items():
+            _report(80, f"  {reason} ({count}x)")
         _report(80, f"🔄 Ponawiam {len(failed)} nieudanych stron (równolegle)…")
+    elif failed and _abort_flag[0]:
+        _report(80, f"⛔ Pominięto retry — {len(failed)}/{page_count} stron nie powiodło się z powodu błędu klucza API")
+        _report(80, f"💡 Sprawdź klucz API w ustawieniach (⚙️) i spróbuj ponownie")
+    if failed and not _abort_flag[0]:
 
         def _retry_page(page_idx):
             """Retry a single page up to 3 times, escalating model on last try."""
