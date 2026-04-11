@@ -356,7 +356,7 @@ class AppDelegate(NSObject):
         self._pageCountLabel.setFrame_(NSMakeRect(236, 6, 180, 16))
         self._pageRangeView.addSubview_(self._pageCountLabel)
         cv.addSubview_(self._pageRangeView)
-        top -= 2
+        top -= 28
 
         self._translateCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 22, CW, 20))
         self._translateCheck.setButtonType_(NSSwitchButton)
