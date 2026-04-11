@@ -38,3 +38,16 @@ android/build/
 *.aab
 dist/
 build/
+# Test files - not for repo
+ocr_benchmark.py
+ab_test.py
+concurrency_test.py
+diagnose.py
+diagnose_deep.py
+e2e_test.py
+full_test.py
+stress_test.py
+hassan_full_output.md
+ocr_benchmark_results.json
+page117.png
+*.pyc
