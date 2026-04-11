@@ -372,7 +372,7 @@ class AppDelegate(NSObject):
         self._translateImgCheck.setFont_(NSFont.systemFontOfSize_(11))
         self._translateImgCheck.setHidden_(True)
         cv.addSubview_(self._translateImgCheck)
-        top -= 2
+        top -= 24
 
         self._langView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 60, CW, 56))
         self._langView.setHidden_(True)
@@ -397,7 +397,7 @@ class AppDelegate(NSObject):
         self._langToField.setNumberOfVisibleItems_(10)
         self._langView.addSubview_(self._langToField)
         cv.addSubview_(self._langView)
-        top -= 2
+        top -= 62
 
         self._convertBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 36, CW - 100, 36))
         self._convertBtn.setBezelStyle_(NSBezelStyleRounded)
