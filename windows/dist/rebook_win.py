@@ -1,17 +1,21 @@
 """ReBook for Windows — Native GUI with CustomTkinter.
 
 Full-featured e-book converter with AI translation/correction.
-First-run wizard auto-bootstraps a Python venv and installs dependencies.
 """
-import json, os, sys, shutil, smtplib, subprocess, threading, queue
+import json, os, sys, shutil, smtplib, threading, queue
 from pathlib import Path
 from email.message import EmailMessage
 
+# tts_engine is bundled alongside this script
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    import tts_engine
+except Exception:
+    tts_engine = None
+
 # ── Paths ────────────────────────────────────────────────────────────────────
 WORKSPACE = Path.home() / ".rebook"
-VENV_DIR = WORKSPACE / "env"
 CONFIG_FILE = WORKSPACE / "config.json"
-CORE_MARKER = WORKSPACE / ".core_installed"
 # In PyInstaller frozen mode, data files are in sys._MEIPASS
 if getattr(sys, 'frozen', False):
     APP_DIR = Path(sys._MEIPASS)
@@ -20,31 +24,6 @@ else:
 
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-
-def _find_marker_bin():
-    """Find marker_single binary on Windows — checks venv, PATH, and user Scripts."""
-    import shutil
-    candidates = [
-        WORKSPACE / "env" / "Scripts" / "marker_single.exe",
-        Path(sys.prefix) / "Scripts" / "marker_single.exe",
-    ]
-    python_dir = Path.home() / "AppData" / "Local" / "Programs" / "Python"
-    if python_dir.exists():
-        for sub in python_dir.glob("Python3*"):
-            candidates.append(sub / "Scripts" / "marker_single.exe")
-    for c in candidates:
-        if c.exists():
-            return str(c)
-    found = shutil.which("marker_single")
-    return found
-
-# ── Determine if running under venv ──────────────────────────────────────────
-def _in_venv():
-    return (VENV_DIR / "Scripts" / "python.exe").exists() and \
-           sys.prefix == str(VENV_DIR)
-
-def _venv_python():
-    return str(VENV_DIR / "Scripts" / "python.exe")
 
 def _get_system_ram_gb():
     """Return total physical RAM in GB."""
@@ -66,9 +45,6 @@ def _get_system_ram_gb():
         return stat.ullTotalPhys / (1024 ** 3)
     except Exception:
         return 99.0  # assume enough RAM if detection fails
-
-# Minimum RAM (GB) for safe Marker OCR operation
-MIN_RAM_FOR_OCR_GB = 6.0
 
 # ── Config ───────────────────────────────────────────────────────────────────
 def load_config():
@@ -109,7 +85,7 @@ MODELS = {
                "o3-mini", "o1", "o1-mini"],
     "anthropic": ["claude-4.6-opus", "claude-3-7-sonnet-latest",
                   "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-    "gemini": ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+    "gemini": ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
     "zhipuai": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
     "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant",
              "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"],
@@ -124,150 +100,7 @@ LANGUAGES = [
     "serbski", "chorwacki",
 ]
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  FIRST-RUN INSTALLER WIZARD
-# ─────────────────────────────────────────────────────────────────────────────
 
-class InstallerWizard:
-    """Native first-run setup wizard using customtkinter."""
-
-    def __init__(self):
-        import customtkinter as ctk
-        self.ctk = ctk
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
-
-        self.root = ctk.CTkToplevel() if hasattr(ctk, '_default_root') and ctk._default_root else ctk.CTk()
-        self.root.title(t("inst_window_title"))
-        self.root.geometry("560x520")
-        self.root.resizable(False, False)
-
-        self._mode = "light"
-        self._build_ui()
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    def _on_close(self):
-        self.root.destroy()
-        sys.exit(0)
-
-    def _build_ui(self):
-        ctk = self.ctk
-        f = self.root
-
-        # Title
-        ctk.CTkLabel(f, text=t("inst_title"), font=ctk.CTkFont(size=22, weight="bold")).pack(pady=(24, 4))
-        ctk.CTkLabel(f, text=t("inst_subtitle"), font=ctk.CTkFont(size=12),
-                     text_color=("gray50", "gray70")).pack(pady=(0, 16))
-
-        # Section header
-        ctk.CTkLabel(f, text=t("inst_section_header"), font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color=("gray50", "gray70")).pack(anchor="w", padx=28, pady=(8, 4))
-
-        # Light option
-        self._radio_var = ctk.StringVar(value="light")
-        light_frame = ctk.CTkFrame(f, corner_radius=8)
-        light_frame.pack(fill="x", padx=24, pady=4)
-        ctk.CTkRadioButton(light_frame, text=t("inst_light_title"),
-                          variable=self._radio_var, value="light",
-                          font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
-        ctk.CTkLabel(light_frame, text=t("inst_light_desc"), font=ctk.CTkFont(size=11),
-                     justify="left", text_color=("gray50", "gray70")).pack(anchor="w", padx=32, pady=(0, 10))
-
-        # Full option
-        full_frame = ctk.CTkFrame(f, corner_radius=8)
-        full_frame.pack(fill="x", padx=24, pady=4)
-        ctk.CTkRadioButton(full_frame, text=t("inst_full_title"),
-                          variable=self._radio_var, value="full",
-                          font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
-        ctk.CTkLabel(full_frame, text=t("inst_full_desc"), font=ctk.CTkFont(size=11),
-                     justify="left", text_color=("gray50", "gray70")).pack(anchor="w", padx=32, pady=(0, 10))
-
-        # Progress area (hidden initially)
-        self._progress_frame = ctk.CTkFrame(f, corner_radius=8)
-        self._progress_label = ctk.CTkLabel(self._progress_frame, text=t("inst_preparing"),
-                                            font=ctk.CTkFont(size=12))
-        self._progress_label.pack(pady=(10, 4))
-        self._progress_bar = ctk.CTkProgressBar(self._progress_frame, width=480)
-        self._progress_bar.pack(pady=(0, 10), padx=20)
-        self._progress_bar.set(0)
-
-        # Install button
-        self._install_btn = ctk.CTkButton(f, text=t("inst_install_btn"),
-                                          font=ctk.CTkFont(size=14, weight="bold"),
-                                          height=42, command=self._start_install)
-        self._install_btn.pack(pady=16, padx=24, fill="x")
-
-        # Result label (hidden)
-        self._result_label = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=12))
-
-    def _start_install(self):
-        self._mode = self._radio_var.get()
-        self._install_btn.configure(state="disabled", text=t("inst_installing"))
-        self._progress_frame.pack(fill="x", padx=24, pady=4)
-        threading.Thread(target=self._do_install, daemon=True).start()
-
-    def _do_install(self):
-        try:
-            # 1. Create venv
-            self._update_progress(t("inst_preparing"), 0.05)
-            if not (VENV_DIR / "Scripts" / "python.exe").exists():
-                subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)],
-                             check=True, capture_output=True)
-
-            pip = str(VENV_DIR / "Scripts" / "pip.exe")
-            python = _venv_python()
-
-            # 2. Core packages
-            self._update_progress(t("inst_core_progress"), 0.15)
-            reqs = str(APP_DIR / "requirements.txt")
-            r = subprocess.run([pip, "install", "-r", reqs],
-                              capture_output=True, text=True)
-            if r.returncode != 0:
-                self._finish_error(t("inst_core_error") + "\n" + r.stderr[-500:])
-                return
-
-            self._update_progress(t("inst_core_progress"), 0.6)
-
-            # 3. Marker (full mode only)
-            if self._mode == "full":
-                self._update_progress(t("inst_marker_progress"), 0.65)
-                r2 = subprocess.run([pip, "install", "marker-pdf"],
-                                    capture_output=True, text=True)
-                if r2.returncode != 0:
-                    self._update_progress(t("inst_marker_warn"), 0.9)
-
-            # 4. Done
-            CORE_MARKER.touch()
-            self._update_progress(t("inst_done"), 1.0)
-            self.root.after(500, self._show_done)
-
-        except Exception as e:
-            self._finish_error(str(e))
-
-    def _update_progress(self, msg, pct):
-        self.root.after(0, lambda: (
-            self._progress_label.configure(text=msg),
-            self._progress_bar.set(pct)
-        ))
-
-    def _finish_error(self, msg):
-        self.root.after(0, lambda: (
-            self._progress_label.configure(text=msg, text_color="red"),
-            self._install_btn.configure(state="normal", text=t("inst_retry_btn"))
-        ))
-
-    def _show_done(self):
-        self._install_btn.configure(state="normal", text=t("inst_launch_btn"),
-                                    command=self._launch)
-        self._result_label.configure(text=t("inst_ready"))
-        self._result_label.pack(pady=4)
-
-    def _launch(self):
-        self.root.destroy()
-
-    def run(self):
-        self.root.mainloop()
-        return CORE_MARKER.exists()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -301,6 +134,16 @@ class ReBookApp:
         self.root.title("ReBook")
         self.root.geometry("680x760")
         self.root.minsize(600, 700)
+
+        # ── App Icon ──
+        try:
+            _ico = APP_DIR / "assets" / "icon.ico"
+            if not _ico.exists():
+                _ico = APP_DIR.parent / "assets" / "icon.ico"
+            if _ico.exists():
+                self.root.iconbitmap(str(_ico))
+        except Exception:
+            pass
 
         self._selected_file = None
         self._output_path = None
@@ -383,6 +226,30 @@ class ReBookApp:
                         text_color=("gray10", "gray90")).pack(
             anchor="w", padx=28, pady=4)
 
+        # Page range (PDF only, hidden by default)
+        self._page_range_frame = ctk.CTkFrame(f, fg_color="transparent")
+        pr_lbl = ctk.CTkLabel(self._page_range_frame, text="📄 Zakres stron:",
+                              font=ctk.CTkFont(size=11),
+                              text_color=("gray30", "gray70"))
+        pr_lbl.pack(side="left", padx=(0, 6))
+        self._page_start_var = ctk.StringVar(value="")
+        self._page_start_entry = ctk.CTkEntry(self._page_range_frame, width=60,
+                                              placeholder_text="Od",
+                                              textvariable=self._page_start_var)
+        self._page_start_entry.pack(side="left", padx=2)
+        ctk.CTkLabel(self._page_range_frame, text="–",
+                     font=ctk.CTkFont(size=13)).pack(side="left", padx=2)
+        self._page_end_var = ctk.StringVar(value="")
+        self._page_end_entry = ctk.CTkEntry(self._page_range_frame, width=60,
+                                            placeholder_text="Do",
+                                            textvariable=self._page_end_var)
+        self._page_end_entry.pack(side="left", padx=2)
+        self._page_count_label = ctk.CTkLabel(self._page_range_frame, text="",
+                                              font=ctk.CTkFont(size=10),
+                                              text_color=("gray50", "gray60"))
+        self._page_count_label.pack(side="left", padx=(8, 0))
+        # Hidden initially — shown when a PDF is selected
+
         # Translation mode
         self._translate_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(f, text=t("translate_check"), variable=self._translate_var,
@@ -398,14 +265,7 @@ class ReBookApp:
             text_color=("gray10", "gray90"),
         )
 
-        # Verify translation (hidden, opt-in, shown when translate enabled)
-        self._verify_var = ctk.BooleanVar(value=False)
-        self._verify_check = ctk.CTkCheckBox(
-            f, text=t("verify_check"),
-            variable=self._verify_var,
-            font=ctk.CTkFont(size=11),
-            text_color=("gray10", "gray90"),
-        )
+
 
         # Language fields (hidden)
         self._lang_frame = ctk.CTkFrame(f, fg_color="transparent")
@@ -423,6 +283,39 @@ class ReBookApp:
         self._lang_to = ctk.CTkComboBox(r2, values=LANGUAGES)
         self._lang_to.set("polski")
         self._lang_to.pack(side="left", fill="x", expand=True)
+
+        # ── Pipeline — krok Audiobook ──────────────────────────────────────────
+        ctk.CTkLabel(f, text="🔗 Pipeline — opcjonalne kroki:",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=("#1a5276", "#90B0D0")).pack(anchor="w", padx=28, pady=(14, 2))
+
+        self._pipeline_audiobook_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            f, text="🎧 Po konwersji → generuj Audiobook automatycznie",
+            variable=self._pipeline_audiobook_var,
+            text_color=("gray10", "gray90"),
+            command=self._on_pipeline_audiobook_toggle,
+        ).pack(anchor="w", padx=28, pady=2)
+
+        # Voice for pipeline audiobook
+        self._pipeline_voice_frame = ctk.CTkFrame(f, fg_color="transparent")
+        pvr = ctk.CTkFrame(self._pipeline_voice_frame, fg_color="transparent")
+        pvr.pack(fill="x", padx=44, pady=2)
+        ctk.CTkLabel(pvr, text="Głos:", font=ctk.CTkFont(size=11),
+                     text_color=("gray30", "gray70"), width=50).pack(side="left")
+        if tts_engine:
+            _pipeline_voice_labels = list(tts_engine.VOICES.values())
+            _pipeline_voice_keys   = list(tts_engine.VOICES.keys())
+        else:
+            _pipeline_voice_labels = ["Marek (PL, Męski)", "Zofia (PL, Żeński)"]
+            _pipeline_voice_keys   = ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"]
+        self._pipeline_voice_keys   = _pipeline_voice_keys
+        import tkinter as _tk
+        self._pipeline_voice_var = _tk.StringVar(value=_pipeline_voice_labels[0])
+        ctk.CTkOptionMenu(
+            pvr, variable=self._pipeline_voice_var,
+            values=_pipeline_voice_labels, width=200,
+        ).pack(side="left", padx=4)
 
         # Convert + Stop buttons
         btn_frame = ctk.CTkFrame(f, fg_color="transparent")
@@ -462,6 +355,77 @@ class ReBookApp:
                       height=36, fg_color="#2d6a4f").pack(side="left", padx=4)
         ctk.CTkButton(btn_row, text=t("kindle_btn"), command=self._send_kindle,
                       height=36, fg_color="gray50").pack(side="left", padx=4)
+
+        # ── Audiobook panel — always visible ─────────────────────────────────────────
+        self._audiobook_frame = ctk.CTkFrame(self._result_frame, fg_color="transparent")
+
+        ctk.CTkLabel(self._audiobook_frame, text="─" * 40,
+                     text_color=("gray60", "gray50")).pack(pady=(4, 0))
+        ctk.CTkLabel(self._audiobook_frame, text="🎧 Audiobook",
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(pady=(4, 2))
+
+        # EPUB source row
+        epub_row = ctk.CTkFrame(self._audiobook_frame, fg_color="transparent")
+        epub_row.pack(fill="x", padx=16, pady=(0, 2))
+        self._audiobook_epub_label = ctk.CTkLabel(
+            epub_row, text="Brak pliku EPUB — wybierz lub konwertuj",
+            font=ctk.CTkFont(size=11), text_color=("gray50", "gray60")
+        )
+        self._audiobook_epub_label.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            epub_row, text="📂 Wybierz EPUB", width=130, height=28,
+            command=self._pick_audiobook_epub, fg_color="#3a5a8a"
+        ).pack(side="right")
+
+        voice_row = ctk.CTkFrame(self._audiobook_frame, fg_color="transparent")
+        voice_row.pack(fill="x", padx=16, pady=4)
+
+        if tts_engine:
+            self._voice_keys = list(tts_engine.VOICES.keys())
+            voice_labels = list(tts_engine.VOICES.values())
+        else:
+            self._voice_keys = ["pl-PL-MarekNeural", "pl-PL-ZofiaNeural"]
+            voice_labels = ["Marek (PL, Męski)", "Zofia (PL, żeński)"]
+
+        import tkinter as tk
+        self._voice_var = tk.StringVar(value=voice_labels[0])
+        self._voice_combo = ctk.CTkOptionMenu(
+            voice_row, variable=self._voice_var,
+            values=voice_labels, width=220,
+            command=lambda _: None
+        )
+        self._voice_combo.pack(side="left", padx=(0, 6))
+
+        self._sample_btn = ctk.CTkButton(
+            voice_row, text="▶ Sample", width=90, height=30,
+            command=self._play_tts_sample, fg_color="#4a6fa5"
+        )
+        self._sample_btn.pack(side="left")
+
+        self._audiobook_btn = ctk.CTkButton(
+            self._audiobook_frame, text="🎧 Generuj audiobook",
+            height=36, font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._generate_audiobook,
+            fg_color="#6a4c93", hover_color="#7d5aad"
+        )
+        self._audiobook_btn.pack(fill="x", padx=16, pady=(4, 2))
+
+        self._audiobook_status = ctk.CTkLabel(
+            self._audiobook_frame, text="", font=ctk.CTkFont(size=11),
+            text_color=("gray50", "gray70")
+        )
+        self._audiobook_status.pack(pady=2)
+
+        self._audiobook_folder_btn = ctk.CTkButton(
+            self._audiobook_frame, text="📂 Otwórz folder z audiobokiem",
+            height=32, command=self._open_audiobook_folder,
+            fg_color="#2d6a4f"
+        )
+        # Hidden until generation completes
+        self._audiobook_output_dir = None
+        self._audiobook_epub_path = None  # path of EPUB to convert to audiobook
+        # Panel is always visible
+        self._audiobook_frame.pack(fill="x", padx=8, pady=(4, 8))
 
     # ── File handling ──
 
@@ -504,6 +468,22 @@ class ReBookApp:
         self._size_label.pack(anchor="w", padx=12)
         self._remove_btn.pack(anchor="e", padx=12, pady=(0, 8))
 
+        # Show page range panel for PDFs
+        is_pdf = p.suffix.lower() == ".pdf"
+        if is_pdf:
+            self._page_range_frame.pack(fill="x", padx=28, pady=4)
+            try:
+                sys.path.insert(0, str(APP_DIR))
+                import corrector
+                total = corrector.get_pdf_page_count(str(p))
+                self._page_count_label.configure(text=f"(z {total} stron)")
+            except Exception:
+                self._page_count_label.configure(text="")
+            self._page_start_var.set("")
+            self._page_end_var.set("")
+        else:
+            self._page_range_frame.pack_forget()
+
         self._convert_btn.configure(state="normal")
         self._result_frame.pack_forget()
 
@@ -518,13 +498,16 @@ class ReBookApp:
         if self._translate_var.get():
             self._lang_frame.pack(fill="x", padx=28, pady=4)
             self._translate_img_check.pack(anchor="w", padx=44, pady=2)
-            self._verify_check.pack(anchor="w", padx=44, pady=2)
         else:
             self._lang_frame.pack_forget()
             self._translate_img_check.pack_forget()
-            self._verify_check.pack_forget()
             self._translate_img_var.set(False)
-            self._verify_var.set(False)
+
+    def _on_pipeline_audiobook_toggle(self):
+        if self._pipeline_audiobook_var.get():
+            self._pipeline_voice_frame.pack(fill="x", padx=28, pady=(0, 4))
+        else:
+            self._pipeline_voice_frame.pack_forget()
 
     # ── Settings ──
 
@@ -534,7 +517,8 @@ class ReBookApp:
         win.title(t("settings_title"))
         win.geometry("460x680")
         win.resizable(False, False)
-        win.grab_set()
+        # On Linux, CTkToplevel may render empty if grab_set() is called
+        # before widgets are packed. We call it at the end instead.
 
         cfg = load_config()
 
@@ -594,23 +578,24 @@ class ReBookApp:
         smtp_pass.insert(0, cfg.get("smtp_pass", ""))
         smtp_pass.pack(fill="x", padx=20, pady=2)
 
-        # ── Marker OCR Section ──
-        ctk.CTkLabel(win, text=t("settings_marker_header"),
+        # ── OCR Provider Section ──
+        ctk.CTkLabel(win, text="OCR",
                      font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
             anchor="w", padx=20, pady=(16, 4))
 
-        # Check multiple possible marker locations on Windows
-        marker_ok = _find_marker_bin() is not None
-        status_key = "settings_marker_installed" if marker_ok else "settings_marker_not_installed"
-        marker_status = ctk.CTkLabel(win, text=t(status_key), font=ctk.CTkFont(size=11),
-            text_color=("#2d8f2d", "#5dce5d") if marker_ok else ("orange", "orange"))
-        marker_status.pack(anchor="w", padx=20, pady=(2, 4))
+        ocr_providers_display = ["Auto (najlepszy dostępny)", "Mistral OCR", "Gemini Cloud OCR"]
+        ocr_providers_keys    = ["auto", "mistral", "gemini"]
+        cur_ocr = cfg.get("ocr_provider", "auto")
+        cur_ocr_idx = ocr_providers_keys.index(cur_ocr) if cur_ocr in ocr_providers_keys else 0
 
-        if not marker_ok:
-            marker_btn = ctk.CTkButton(win, text=t("settings_marker_install_btn"),
-                                        height=32, command=lambda: self._install_marker_win(
-                                            win, marker_btn, marker_status))
-            marker_btn.pack(fill="x", padx=20, pady=2)
+        ocr_prov_var = ctk.StringVar(value=ocr_providers_display[cur_ocr_idx])
+        ctk.CTkLabel(win, text="Provider OCR:").pack(anchor="w", padx=20, pady=(4, 0))
+        ctk.CTkOptionMenu(win, values=ocr_providers_display, variable=ocr_prov_var).pack(fill="x", padx=20, pady=2)
+
+        ctk.CTkLabel(win, text="Klucz OCR (pusty = użyj klucza głównego):").pack(anchor="w", padx=20, pady=(8, 0))
+        ocr_key_entry = ctk.CTkEntry(win, show="•")
+        ocr_key_entry.insert(0, cfg.get("ocr_api_key", ""))
+        ocr_key_entry.pack(fill="x", padx=20, pady=2)
 
         # Buttons
         btn_row = ctk.CTkFrame(win, fg_color="transparent")
@@ -618,6 +603,7 @@ class ReBookApp:
 
         def _save():
             idx = prov_names.index(prov_var.get()) if prov_var.get() in prov_names else 0
+            ocr_idx = ocr_providers_display.index(ocr_prov_var.get()) if ocr_prov_var.get() in ocr_providers_display else 0
             save_config({
                 "llm_provider": prov_keys[idx],
                 "model_name": model_var.get(),
@@ -625,6 +611,8 @@ class ReBookApp:
                 "kindle_email": kindle_entry.get(),
                 "smtp_email": smtp_entry.get(),
                 "smtp_pass": smtp_pass.get(),
+                "ocr_provider": ocr_providers_keys[ocr_idx],
+                "ocr_api_key": ocr_key_entry.get(),
             })
             win.destroy()
 
@@ -632,188 +620,15 @@ class ReBookApp:
         ctk.CTkButton(btn_row, text=t("settings_cancel"), fg_color="gray50",
                       command=win.destroy).pack(side="right", padx=4)
 
-    @staticmethod
-    def _is_vcredist_installed():
-        """Check if VC++ Redistributable 2015-2022 x64 is installed."""
-        import winreg
-        keys_to_check = [
-            r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64",
-            r"SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\X64",
-        ]
-        for key_path in keys_to_check:
-            try:
-                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
-                val, _ = winreg.QueryValueEx(key, "Installed")
-                winreg.CloseKey(key)
-                if val == 1:
-                    return True
-            except (FileNotFoundError, OSError):
-                continue
-        return False
-
-    def _ensure_vcredist(self, win, status_label):
-        """Download and install VC++ Redistributable if missing. Returns True on success."""
-        if self._is_vcredist_installed():
-            return True
-        try:
-            import urllib.request, tempfile
-            installer = Path(tempfile.gettempdir()) / "vc_redist.x64.exe"
-            vc_url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
-
-            def _report(count, block_size, total_size):
-                if total_size > 0:
-                    pct = min(100, int(count * block_size * 100 / total_size))
-                    win.after(0, lambda p=pct: status_label.configure(
-                        text=f"⏳ Pobieranie VC++ Runtime... {p}%", text_color="orange"
-                    ))
-
-            win.after(0, lambda: status_label.configure(
-                text="⏳ Pobieranie VC++ Runtime (~25 MB)...", text_color="orange"
-            ))
-            urllib.request.urlretrieve(vc_url, installer, reporthook=_report)
-
-            win.after(0, lambda: status_label.configure(
-                text="⏳ Instalacja VC++ Runtime...", text_color="orange"
-            ))
-            subprocess.run(
-                [str(installer), "/install", "/passive", "/norestart"],
-                check=True
-            )
-            return True
-        except Exception as ex:
-            print(f"VC++ install failed: {ex}")
-            return False
-
-    def _install_marker_win(self, win, btn, status_label):
-        btn.configure(state="disabled", text=t("settings_marker_installing"))
-        def _do():
-            # Find pip: try venv first, then system PATH
-            venv_pip = WORKSPACE / "env" / "Scripts" / "pip.exe"
-            if venv_pip.exists():
-                pip = str(venv_pip)
-            else:
-                import shutil as _sh
-                pip = _sh.which("pip") or _sh.which("pip3")
-            if not pip:
-                # Automagically install Python for the user before proceeding
-                win.after(0, lambda: status_label.configure(
-                    text="⏳ Brak Python. Pobieranie instalatora (~30MB)...", text_color="orange"
-                ))
-                try:
-                    import urllib.request, tempfile
-                    installer = Path(tempfile.gettempdir()) / "python-installer.exe"
-                    
-                    def _report_hook(count, block_size, total_size):
-                        if total_size > 0:
-                            percent = min(100, int(count * block_size * 100 / total_size))
-                            win.after(0, lambda p=percent: status_label.configure(
-                                text=f"⏳ Pobieranie instalatora Python... {p}%", text_color="orange"
-                            ))
-
-                    urllib.request.urlretrieve(
-                        "https://www.python.org/ftp/python/3.12.3/python-3.12.3-amd64.exe", 
-                        installer, 
-                        reporthook=_report_hook
-                    )
-                    
-                    win.after(0, lambda: status_label.configure(
-                        text="⏳ Instalacja Python... (widoczne okno instalatora)", text_color="orange"
-                    ))
-                    # Install in user space, add to PATH, show progress bar
-                    subprocess.run(
-                        [str(installer), "/passive", "InstallAllUsers=0", "PrependPath=1", "Include_test=0"],
-                        check=True
-                    )
-                    
-                    # Locate the newly installed pip
-                    user_scripts = Path.home() / "AppData" / "Local" / "Programs" / "Python" / "Python312" / "Scripts"
-                    if (user_scripts / "pip.exe").exists():
-                        pip = str(user_scripts / "pip.exe")
-                    else:
-                        pip = _sh.which("pip") or _sh.which("pip3")
-                        
-                except Exception as ex:
-                    win.after(0, lambda: (
-                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                        status_label.configure(text=f"❌ Błąd inst. Python: {ex}", text_color="red"),
-                    ))
-                    return
-
-            if not pip:
-                win.after(0, lambda: (
-                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                    status_label.configure(text="❌ Instalacja Python nie powiodła się", text_color="red"),
-                ))
-                return
-
-            # ── Ensure VC++ Redistributable is installed (required by PyTorch) ──
-            win.after(0, lambda: status_label.configure(
-                text="⏳ Sprawdzanie zależności systemowych...", text_color="orange"
-            ))
-            if not self._ensure_vcredist(win, status_label):
-                win.after(0, lambda: (
-                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                    status_label.configure(
-                        text="❌ Nie udało się zainstalować VC++ Redistributable", text_color="red"),
-                ))
-                return
-
-            win.after(0, lambda: status_label.configure(
-                text="⏳ Pobieranie Marker OCR (~1 GB)...", text_color="orange"
-            ))
-
-            try:
-                # Use Popen to stream pip output to the UI
-                popen_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-                p = subprocess.Popen([pip, "install", "marker-pdf"],
-                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                     text=True, creationflags=popen_flags)
-                for line in p.stdout:
-                    txt = line.strip()
-                    if txt and len(txt) > 2:
-                        show_txt = txt[:60] + "..." if len(txt) > 60 else txt
-                        win.after(0, lambda m=show_txt: status_label.configure(
-                            text=f"⏳ {m}", text_color="orange"
-                        ))
-                
-                p.wait(timeout=900)
-                if p.returncode == 0:
-                    win.after(0, lambda: (
-                        btn.pack_forget(),
-                        status_label.configure(text=t("settings_marker_done"),
-                                               text_color=("#2d8f2d", "#5dce5d")),
-                    ))
-                else:
-                    win.after(0, lambda: (
-                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                        status_label.configure(text="❌ Błąd instalacji Markera (sprawdź połączenie)", text_color="red"),
-                    ))
-            except Exception as e:
-                win.after(0, lambda: (
-                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                    status_label.configure(text=t("settings_marker_error"), text_color="red"),
-                ))
-        threading.Thread(target=_do, daemon=True).start()
+        # Finalize window — grab_set AFTER all widgets are packed (fixes empty window on Linux)
+        win.update()
+        win.after(100, lambda: (win.lift(), win.focus_force(), win.grab_set()))
 
     # ── Conversion ──
 
     def _start_conversion(self):
         if not self._selected_file or self._converting:
             return
-
-        # ── Hardware safety check for PDF files (require Marker OCR) ──
-        is_pdf = Path(self._selected_file).suffix.lower() == ".pdf"
-        if is_pdf:
-            ram_gb = _get_system_ram_gb()
-            if ram_gb < MIN_RAM_FOR_OCR_GB:
-                from tkinter import messagebox
-                proceed = messagebox.askyesno(
-                    t("hw_warn_title"),
-                    t("hw_warn_low_ram", ram_gb=ram_gb),
-                    icon="warning",
-                )
-                if not proceed:
-                    return
 
         self._converting = True
         self._cancel_flag = False
@@ -833,12 +648,26 @@ class ReBookApp:
         fmt = FORMAT_KEYS[fmt_idx]
         translate = self._translate_var.get()
         translate_images = self._translate_img_var.get() if translate else False
-        verify = self._verify_var.get() if translate else False
         use_llm = self._ai_var.get() or translate
         lang_from = self._lang_from.get() if translate else ""
         lang_to = self._lang_to.get() if translate else "polski"
 
-        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, verify, lang_from, lang_to)
+        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, lang_from, lang_to)
+
+        # Page range (PDF only)
+        page_start = 0
+        page_end = 0
+        try:
+            ps = self._page_start_var.get().strip()
+            pe = self._page_end_var.get().strip()
+            if ps:
+                page_start = int(ps)
+            if pe:
+                page_end = int(pe)
+        except (ValueError, AttributeError):
+            pass
+
+        args = args + (page_start, page_end)
         threading.Thread(target=self._run_conversion, args=args, daemon=True).start()
 
     def _stop_conversion(self):
@@ -847,7 +676,7 @@ class ReBookApp:
         self._stage_label.configure(text="⛔ Zatrzymywanie…")
         self._append_log("⛔ Zatrzymywanie konwersji…")
 
-    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to):
+    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0):
         try:
             import converter
 
@@ -862,10 +691,11 @@ class ReBookApp:
                 use_llm=use_llm,
                 use_translate=translate,
                 translate_images=translate_images,
-                verify_translation=verify,
                 lang_from=lang_from,
                 lang_to=lang_to,
                 progress_callback=_progress_with_cancel,
+                page_start=page_start,
+                page_end=page_end,
             )
             self._ui_queue.put(("done", result))
         except InterruptedError:
@@ -930,6 +760,212 @@ class ReBookApp:
         self._log_box.pack_forget()  # hide log to make room for result
         self._result_frame.pack(fill="x", padx=24, pady=8)
         self._append_log(t("all_done", name=Path(output_path).name))
+        # Update audiobook panel EPUB source when conversion produces EPUB
+        if str(output_path).endswith('.epub') and tts_engine:
+            self._audiobook_epub_path = str(output_path)
+            name = Path(output_path).name
+            self._audiobook_epub_label.configure(
+                text=f"📖 {name}", text_color=("gray30", "gray80")
+            )
+            self._audiobook_status.configure(text="")
+            self._audiobook_folder_btn.pack_forget()
+        # Panel is always visible — no pack/pack_forget needed
+
+        # ── Pipeline: auto-generate audiobook if checkbox is set ─────────────
+        if (str(output_path).endswith('.epub')
+                and tts_engine
+                and self._pipeline_audiobook_var.get()):
+            self._append_log("🔗 Pipeline: uruchamiam generowanie audiobooka…")
+            # Set the pipeline voice as the audiobook voice and kick off
+            voice_label = self._pipeline_voice_var.get()
+            voice_labels = list(tts_engine.VOICES.values())
+            idx = voice_labels.index(voice_label) if voice_label in voice_labels else 0
+            # Set voice in the audiobook panel selector too (for consistency)
+            self._voice_var.set(voice_label)
+            # Auto-trigger after short delay so UI can update
+            self.root.after(500, self._generate_audiobook)
+
+    def _pick_audiobook_epub(self):
+        """Let user pick any EPUB file for audiobook generation."""
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="Wybierz plik EPUB do audiobooka",
+            filetypes=[("Pliki EPUB", "*.epub"), ("Wszystkie pliki", "*.*")]
+        )
+        if path:
+            self._audiobook_epub_path = path
+            import os
+            name = os.path.basename(path)
+            self._audiobook_epub_label.configure(
+                text=f"📖 {name}", text_color=("gray30", "gray80")
+            )
+            self._audiobook_status.configure(text="")
+            self._audiobook_folder_btn.pack_forget()
+
+    def _play_tts_sample(self):
+        if not tts_engine:
+            return
+        self._sample_btn.configure(text="⏳", state="disabled")
+        voice_label = self._voice_var.get()
+        voice_labels = list(tts_engine.VOICES.values())
+        idx = voice_labels.index(voice_label) if voice_label in voice_labels else 0
+        voice = self._voice_keys[idx]
+
+        def _done(err):
+            self.root.after(0, lambda: self._sample_btn.configure(text="▶ Sample", state="normal"))
+            if err:
+                self.root.after(0, lambda: self._audiobook_status.configure(
+                    text=f"❌ {err[:60]}", text_color="red"))
+        tts_engine.generate_sample(voice, _done)
+
+    def _generate_audiobook(self):
+        if not tts_engine:
+            return
+        # Priority: 1) explicitly picked EPUB, 2) conversion output, 3) loaded input file
+        src = getattr(self, '_audiobook_epub_path', None)
+        if not src or not str(src).endswith('.epub'):
+            src = getattr(self, '_output_path', None)
+        if not src or not str(src).endswith('.epub'):
+            sel = getattr(self, '_selected_file', None)
+            if sel and str(sel).endswith('.epub'):
+                src = sel
+            else:
+                self._audiobook_status.configure(
+                    text="❌ Najpierw skonwertuj plik do EPUB", text_color="red")
+                return
+
+        # Extract chapters and show selection dialog
+        try:
+            chapters = tts_engine.list_chapters(str(src))
+        except Exception as e:
+            self._audiobook_status.configure(text=f"❌ {str(e)[:80]}", text_color="red")
+            return
+        if not chapters:
+            self._audiobook_status.configure(text="❌ EPUB nie zawiera rozdziałów", text_color="red")
+            return
+
+        selected = self._show_chapter_selector(chapters)
+        if selected is None:  # user cancelled
+            return
+
+        voice_label = self._voice_var.get()
+        voice_labels = list(tts_engine.VOICES.values())
+        idx = voice_labels.index(voice_label) if voice_label in voice_labels else 0
+        voice = self._voice_keys[idx]
+
+        src_path = Path(str(src))
+        out_dir = src_path.parent / f"{src_path.stem}_audiobook"
+        self._audiobook_output_dir = str(out_dir)
+
+        self._audiobook_btn.configure(state="disabled", text="⏳ Generuję…")
+        self._audiobook_status.configure(
+            text=f"Generowanie {len(selected)}/{len(chapters)} rozdziałów…",
+            text_color=("gray50", "gray70"))
+        self._audiobook_folder_btn.pack_forget()
+
+        def _progress(cur, total, msg):
+            self.root.after(0, lambda: self._audiobook_status.configure(text=msg))
+
+        def _run():
+            try:
+                paths = tts_engine.generate_audiobook(
+                    epub_path=str(src),
+                    voice=voice,
+                    output_dir=str(out_dir),
+                    progress_cb=_progress,
+                    selected_chapters=selected,
+                )
+                self.root.after(0, lambda: self._audiobook_done(len(paths)))
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                self.root.after(0, lambda: self._audiobook_error(str(e)))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_chapter_selector(self, chapters):
+        """Show chapter selection dialog. Returns list of selected indices or None."""
+        result = [None]  # mutable for closure
+
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("📋 Wybierz rozdziały")
+        dialog.geometry("460x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(True, True)
+
+        ctk.CTkLabel(dialog, text=f"Znaleziono {len(chapters)} rozdziałów:",
+                     font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(12, 4))
+
+        # Select all / deselect all
+        all_var = ctk.BooleanVar(value=True)
+        check_vars = []
+
+        def toggle_all():
+            state = all_var.get()
+            for v in check_vars:
+                v.set(state)
+
+        ctk.CTkCheckBox(dialog, text="Zaznacz / Odznacz wszystkie",
+                        variable=all_var, command=toggle_all,
+                        font=ctk.CTkFont(size=12, weight="bold")).pack(padx=16, anchor="w", pady=4)
+
+        # Scrollable chapter list
+        scroll = ctk.CTkScrollableFrame(dialog, height=350)
+        scroll.pack(fill="both", expand=True, padx=12, pady=4)
+
+        for i, ch in enumerate(chapters):
+            var = ctk.BooleanVar(value=True)
+            check_vars.append(var)
+            words = len(ch.text.split())
+            label = f"{i+1}. {ch.title[:45]}  (~{words} słów)"
+            ctk.CTkCheckBox(scroll, text=label, variable=var,
+                            font=ctk.CTkFont(size=11)).pack(anchor="w", pady=1)
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=12, pady=8)
+
+        def on_cancel():
+            dialog.destroy()
+
+        def on_generate():
+            result[0] = [chapters[i].index for i, v in enumerate(check_vars) if v.get()]
+            dialog.destroy()
+
+        ctk.CTkButton(btn_frame, text="Anuluj", width=100,
+                      fg_color="gray40", command=on_cancel).pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text="🎧 Generuj", width=160,
+                      command=on_generate).pack(side="right", padx=4)
+
+        dialog.wait_window()
+
+        if result[0] is not None and len(result[0]) == 0:
+            self._audiobook_status.configure(text="Nie wybrano żadnych rozdziałów", text_color="orange")
+            return None
+
+        return result[0]
+
+    def _audiobook_done(self, count):
+        self._audiobook_btn.configure(state="normal", text="🎧 Generuj audiobook")
+        self._audiobook_status.configure(
+            text=f"✅ Gotowe! {count} rozdziałów MP3 + playlist.m3u",
+            text_color=("#2d8f2d", "#5dce5d")
+        )
+        self._audiobook_folder_btn.pack(fill="x", padx=16, pady=(2, 8))
+
+    def _audiobook_error(self, err):
+        self._audiobook_btn.configure(state="normal", text="🎧 Generuj audiobook")
+        self._audiobook_status.configure(
+            text=f"❌ {err[:80]}", text_color="red")
+
+    def _open_audiobook_folder(self):
+        folder = self._audiobook_output_dir
+        if folder and Path(folder).exists():
+            if sys.platform == "win32":
+                os.startfile(folder)
+            else:
+                subprocess.Popen(["xdg-open", folder])
+
 
     def _conversion_cancelled(self):
         self._converting = False
@@ -1006,37 +1042,17 @@ class ReBookApp:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    # ── PyInstaller bundle: everything is already inside the .exe ─────────
-    frozen = getattr(sys, 'frozen', False)
+    # ── Plug & Play: no venv, no wizard ──────────────────────────────────
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-    if frozen:
-        # All deps are bundled — skip venv/pip, go straight to app
-        # Ensure WORKSPACE exists for config
-        WORKSPACE.mkdir(parents=True, exist_ok=True)
-        CORE_MARKER.touch()  # mark as "installed"
-        app = ReBookApp()
-        app.run()
-        return
-
-    # ── Running from source (dev mode) ────────────────────────────────────
     try:
         import customtkinter  # noqa
     except ImportError:
+        import subprocess
         subprocess.run([sys.executable, "-m", "pip", "install", "customtkinter"],
                       capture_output=True)
 
-    # Check if first run
-    if not CORE_MARKER.exists():
-        wizard = InstallerWizard()
-        if not wizard.run():
-            sys.exit(0)
-
-    # Re-exec under venv if needed
-    venv_py = _venv_python()
-    if os.path.exists(venv_py) and sys.executable != venv_py:
-        os.execv(venv_py, [venv_py, __file__] + sys.argv[1:])
-
-    # Launch main app
+    # Launch main app directly — plug & play
     app = ReBookApp()
     app.run()
 

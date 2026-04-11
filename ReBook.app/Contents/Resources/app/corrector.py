@@ -894,7 +894,7 @@ Oto tekst:
 # ─── Dual-Provider OCR Layer ──────────────────────────────────────────────────
 
 _MISTRAL_OCR_MODEL = "mistral-ocr-latest"
-_GEMINI_OCR_MODEL  = "gemini-2.5-flash-lite"
+_GEMINI_OCR_MODEL  = "gemini-3.1-flash-lite-preview"
 _GEMINI_OCR_SIZE_MB = 50
 
 _OCR_PROMPT = (
@@ -908,7 +908,7 @@ _OCR_PROMPT = (
     "6. Zwroc TYLKO tekst dokumentu w formacie Markdown."
 )
 
-_GEMINI_OCR_TRANSLATE_MODEL = "gemini-3.0-flash"
+_GEMINI_OCR_TRANSLATE_MODEL = "gemini-3.1-flash-lite-preview"
 
 
 def _get_pdf_page_count(pdf_path: str) -> int:
@@ -1031,8 +1031,7 @@ def is_cloud_ocr_available(config: dict = None) -> bool:
     """True when a cloud OCR provider is configured with a valid key."""
     c = get_ocr_config(config)
     prov = c["provider"]
-    if prov == "marker":
-        return False
+
     if prov in ("mistral", "gemini"):
         return bool(c["api_key"])
     # auto: available if any cloud key exists
@@ -1048,7 +1047,6 @@ def get_ocr_provider_display(config: dict = None) -> str:
     names = {
         "mistral": "Mistral OCR",
         "gemini": "Gemini Cloud OCR",
-        "marker": "Marker OCR (lokalny)",
         "auto": "Auto (najlepszy dostepny)",
     }
     return names.get(prov, prov)
@@ -1306,6 +1304,544 @@ def _gemini_ocr(
     return text
 
 
+# ─── langdetect-based local verification ──────────────────────────────────────
+
+# Map of language names → ISO 639-1 codes for langdetect
+_LANG_CODES = {
+    "polski": "pl", "angielski": "en", "english": "en",
+    "niemiecki": "de", "francuski": "fr", "hiszpański": "es",
+    "włoski": "it", "portugalski": "pt", "rosyjski": "ru",
+    "ukraiński": "uk", "czeski": "cs", "słowacki": "sk",
+    "chiński": "zh-cn", "japoński": "ja", "koreański": "ko",
+    "turecki": "tr", "arabski": "ar", "holenderski": "nl",
+    "szwedzki": "sv", "norweski": "no", "duński": "da",
+    "fiński": "fi", "węgierski": "hu", "rumuński": "ro",
+}
+
+
+def _verify_page_local(text: str, target_lang: str = "") -> bool:
+    """Verify that text is in the expected language using langdetect.
+    Returns True if verification passes.
+
+    Smart handling:
+    - Pages with < 100 chars: accept if non-empty (dedications, short pages)
+    - Back-matter pages (bib, index, addresses): accept
+    - Uses probability threshold instead of binary detection
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if len(stripped) < 100:
+        return True  # Too short for reliable detection — accept if non-empty
+
+    # Detect back-matter pages (bibliography, index, addresses, resources)
+    # These legitimately contain foreign-language names, titles, URLs, addresses
+    backmatter_indicators = [
+        # Bibliography
+        'ISBN', '(ed.)', '(eds.)', 'University Press', 'Vol.', 'pp.',
+        'Journal of', 'New York:', 'London:', 'Cambridge:', '(red.)',
+        'Press,', 'Books,', 'Publishing',
+        # Addresses & contacts
+        'PO Box', 'Tel:', 'Fax:', 'www.', 'http', '.org', '.com', '.edu',
+        '@', 'Foundation', 'Association', 'Institute',
+        # Index patterns
+        '...', ', s.', 'zob.', 'por.',
+    ]
+    backmatter_count = sum(1 for ind in backmatter_indicators if ind in text)
+    if backmatter_count >= 3:
+        return True  # Back-matter page — foreign names and titles expected
+
+    # Bibliography detection by year pattern: "1986." "1997." "2001." etc.
+    import re
+    year_refs = re.findall(r'(?:19|20)\d{2}\.', text)
+    if len(year_refs) >= 3:
+        return True  # Multiple publication years = bibliography page
+
+    if not target_lang:
+        return True  # No target = OCR-only, just check non-empty
+
+    try:
+        from langdetect import detect_langs
+        target_code = _LANG_CODES.get(target_lang.strip().lower(), target_lang[:2].lower())
+        langs = detect_langs(text)
+        # Accept if target language is in top-2 detections with >15% probability
+        for lang_prob in langs[:2]:
+            if lang_prob.lang == target_code and lang_prob.prob > 0.15:
+                return True
+        return False
+    except Exception:
+        # langdetect not available or detection failed — pass through
+        return True
+
+
+
+# ─── Per-Page OCR Engine (v4.0) ───────────────────────────────────────────────
+
+_DEFAULT_OCR_WORKERS = 50
+_ESCALATION_MODEL = "gemini-3-flash-preview"
+_PAGE_DPI = 200
+
+
+def _build_glossary(
+    pdf_path: str,
+    api_key: str,
+    lang_to: str,
+    lang_from: str = "",
+    sample_pages: list[int] = None,
+) -> str:
+    """Build a terminology glossary from sample pages of the PDF.
+    Returns a formatted glossary string to include in prompts.
+    """
+    import base64
+    import fitz
+    import urllib.request
+    import json as _json
+
+    if not sample_pages:
+        total = _get_pdf_page_count(pdf_path)
+        # Sample 3 pages: near start, middle, late
+        sample_pages = [min(5, total - 1), total // 2, min(total - 5, total - 1)]
+        sample_pages = [max(0, p) for p in sample_pages]
+
+    doc = fitz.open(pdf_path)
+    images_b64 = []
+    for p in sample_pages[:3]:
+        if p < len(doc):
+            mat = fitz.Matrix(_PAGE_DPI / 72, _PAGE_DPI / 72)
+            pix = doc[p].get_pixmap(matrix=mat)
+            images_b64.append(base64.standard_b64encode(pix.tobytes("png")).decode())
+    doc.close()
+
+    if not images_b64:
+        return ""
+
+    src = f" z {lang_from}" if lang_from else ""
+    prompt = (
+        f"Przeczytaj te strony książki. Wylistuj 20 kluczowych terminów specjalistycznych "
+        f"i ich najlepsze tłumaczenie{src} na język {lang_to}.\n"
+        f"Format: TERM_ORIGINAL → TERM_TRANSLATED\n"
+        f"Jeśli termin nie wymaga tłumaczenia (nazwa własna), napisz: TERM → TERM\n"
+        f"Odpowiedz TYLKO listą terminów, bez komentarzy."
+    )
+
+    parts = [{"text": prompt}]
+    for img in images_b64:
+        parts.append({"inline_data": {"mime_type": "image/png", "data": img}})
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{_GEMINI_OCR_MODEL}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
+    }
+    try:
+        req = urllib.request.Request(url, _json.dumps(payload).encode(), {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            result = _json.loads(r.read())
+        glossary_text = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        if glossary_text and len(glossary_text.strip()) > 20:
+            return glossary_text.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _build_mega_prompt(
+    translate_lang: str = "",
+    translate_from: str = "",
+    glossary: str = "",
+) -> str:
+    """Build the mega-prompt for per-page OCR (+optional translation + QC)."""
+    if translate_lang:
+        src = f" z języka {translate_from}" if translate_from else ""
+        translate_section = (
+            f"2. TŁUMACZENIE: Przetłumacz wyodrębniony tekst{src} na język {translate_lang}.\n"
+            f"3. AUTOKOREKTA: Sprawdź porównując z obrazem czy:\n"
+            f"   - Żadne zdanie nie zostało pominięte\n"
+            f"   - Nie ma nieprzetłumaczonych fragmentów\n"
+            f"   - Nie ma śmieci z OCR (losowe cyfry, symbole bez kontekstu)\n"
+            f"   - Tekst jest płynny i naturalny po {translate_lang.lower()}\n"
+        )
+        rules = (
+            f"- NIE zostawiaj niczego w języku oryginalnym (wyjątek: nazwy własne, tytuły książek)\n"
+            f"- Zwróć WYŁĄCZNIE gotowy, przetłumaczony, zweryfikowany tekst w języku {translate_lang}"
+        )
+    else:
+        translate_section = ""
+        rules = "- Zwróć WYŁĄCZNIE wyodrębniony tekst ze skanu"
+
+    glossary_section = ""
+    if glossary:
+        glossary_section = f"\nGLOSARIUSZ TERMINÓW (użyj tych tłumaczeń):\n{glossary}\n"
+
+    return (
+        f"Wykonaj następujące kroki na tym skanie strony książki:\n\n"
+        f"1. EKSTRAKCJA (OCR): Wyodrębnij CAŁY tekst ze skanu strony.\n"
+        f"{translate_section}"
+        f"\nILUSTRACJA: Jeśli strona zawiera głównie ilustrację/rysunek/wykres:\n"
+        f"- Bez tekstu do tłumaczenia: zwróć dokładnie: {{{{IMAGE:strona}}}}\n"
+        f"- Z tekstem (podpisy, etykiety, tytuł): wyodrębnij tekst{',' + ' przetłumacz' if translate_lang else ''}"
+        f" i zwróć jako: {{{{IMAGE_TEXT:strona}}}}\\n[tekst z ilustracji]\n"
+        f"\nZASADY:\n"
+        f"- Zachowaj formatowanie Markdown (# nagłówki, - listy, > cytaty)\n"
+        f"- [nieczytelne] dla fragmentów niemożliwych do odczytania\n"
+        f"- NIE dodawaj żadnych komentarzy — TYLKO tekst\n"
+        f"{rules}"
+        f"{glossary_section}"
+    )
+
+
+def _call_gemini_page(
+    api_key: str,
+    model: str,
+    image_b64: str,
+    prompt: str,
+    timeout: int = 60,
+) -> tuple[str, dict]:
+    """Send a single page image to Gemini for OCR.
+    Returns (text, usage_metadata).
+    """
+    import urllib.request
+    import urllib.error
+    import json as _json
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [
+            {"text": prompt},
+            {"inline_data": {"mime_type": "image/png", "data": image_b64}},
+        ]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+    }
+    data = _json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        result = _json.loads(resp.read().decode("utf-8"))
+
+    usage = result.get("usageMetadata", {})
+    text = ""
+    if "candidates" in result:
+        parts = result["candidates"][0].get("content", {}).get("parts", [])
+        text = "".join(p.get("text", "") for p in parts)
+    return text.strip(), usage
+
+
+def _extract_pdf_page_image(pdf_path: str, page_num: int) -> bytes:
+    """Extract the dominant image from a PDF page (for illustration pages).
+    Returns image bytes (PNG) or empty bytes if no dominant image found.
+    """
+    import fitz
+
+    doc = fitz.open(pdf_path)
+    page = doc[page_num]
+    images = page.get_images(full=True)
+
+    if not images:
+        doc.close()
+        return b""
+
+    # Find the largest image on the page
+    page_area = page.rect.width * page.rect.height
+    best_img = None
+    best_size = 0
+
+    for img_info in images:
+        xref = img_info[0]
+        try:
+            pix = fitz.Pixmap(doc, xref)
+            img_area = pix.width * pix.height
+            if img_area > best_size:
+                best_size = img_area
+                # Convert to PNG bytes
+                if pix.n > 4:  # CMYK → RGB
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                best_img = pix.tobytes("png")
+            pix = None  # Free
+        except Exception:
+            continue
+
+    doc.close()
+
+    # Only return if the image covers >40% of the page
+    if best_img and best_size > page_area * 0.10:
+        return best_img
+    return b""
+
+
+def _postprocess_text(text: str) -> str:
+    """Local postprocessing — zero cost, instant.
+    Cleans up common OCR/AI artifacts.
+    """
+    import re
+
+    # 1. Deduplicate consecutive identical paragraphs
+    paragraphs = text.split('\n\n')
+    deduped = []
+    for p in paragraphs:
+        if not deduped or p.strip() != deduped[-1].strip():
+            deduped.append(p)
+    text = '\n\n'.join(deduped)
+
+    # 2. Strip orphaned page numbers (standalone numbers between blank lines)
+    text = _strip_page_numbers(text)
+
+    # 3. Normalize whitespace (max 2 consecutive newlines)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    # 4. Polish typography
+    # „ " instead of " " for Polish
+    text = re.sub(r'"([^"]+)"', r'„\1"', text)
+    # — instead of -- for em-dash
+    text = re.sub(r'(?<!\-)--(?!\-)', '—', text)
+
+    # 5. Fix unclosed markdown emphasis (** without closing **)
+    # Count ** occurrences — if odd, the last one is orphaned
+    bold_count = text.count('**')
+    if bold_count % 2 != 0:
+        # Find last ** and remove it
+        idx = text.rfind('**')
+        if idx >= 0:
+            text = text[:idx] + text[idx+2:]
+
+    return text.strip()
+
+
+def _gemini_ocr_pages(
+    pdf_path: str,
+    config: dict = None,
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    translate_lang: str = "",
+    translate_from: str = "",
+    page_start: int = 0,
+    page_end: int = 0,
+) -> tuple[str, dict[str, bytes]]:
+    """Per-page OCR engine (v4.0).
+
+    Renders each PDF page as image, sends mega-prompt in parallel.
+    Verifies with langdetect, retries failures, extracts illustrations.
+
+    Returns:
+        (markdown_text, {image_filename: image_bytes})
+    """
+    import base64
+    import fitz
+
+    def _report(pct: int, msg: str):
+        if progress_callback:
+            progress_callback("ocr", pct, msg)
+
+    c = get_ocr_config(config)
+    key = c["llm_api_key"] or c["api_key"]
+    # Per-page engine always uses Gemini — if the main provider isn't Gemini,
+    # try GEMINI_API_KEY from environment or .env file
+    if not key or (c.get("llm_provider") not in ("gemini", "google", "")):
+        key = os.environ.get("GEMINI_API_KEY", "")
+        if not key:
+            # Try loading from .env file
+            env_path = WORKSPACE_DIR / ".env"
+            if not env_path.exists():
+                env_path = Path(__file__).parent.parent.parent.parent / ".env"
+            if env_path.exists():
+                try:
+                    for line in env_path.read_text().splitlines():
+                        if line.startswith("GEMINI_API_KEY="):
+                            key = line.split("=", 1)[1].strip()
+                            break
+                except Exception:
+                    pass
+    if not key:
+        raise RuntimeError("Brak klucza Gemini API dla Cloud OCR.")
+
+    model = _GEMINI_OCR_MODEL
+    workers = int((config or {}).get("ocr_workers", _DEFAULT_OCR_WORKERS))
+    workers = max(5, min(workers, 100))
+
+    # Page range
+    total_pages = _get_pdf_page_count(pdf_path)
+    ps = max(page_start, 1) if page_start else 1
+    pe = min(page_end, total_pages) if page_end else total_pages
+    page_count = pe - ps + 1
+    page_indices = list(range(ps - 1, pe))  # 0-indexed
+
+    mode = f"OCR + tłumaczenie → {translate_lang}" if translate_lang else "OCR"
+    _report(2, f"Gemini {mode} — {page_count} stron, {workers} workerów…")
+
+    # ── Step 1: Build glossary (1 quick request) ─────────────────────────
+    glossary = ""
+    if translate_lang:
+        _report(3, "📖 Budowanie glosariusza terminów…")
+        try:
+            glossary = _build_glossary(pdf_path, key, translate_lang, translate_from)
+            if glossary:
+                _report(5, f"📖 Glosariusz: {len(glossary.splitlines())} terminów")
+        except Exception:
+            _report(5, "⚠️ Glosariusz niedostępny — kontynuuję bez niego")
+
+    # ── Step 2: Build prompt ─────────────────────────────────────────────
+    prompt = _build_mega_prompt(translate_lang, translate_from, glossary)
+
+    # ── Step 3: Render pages as images ───────────────────────────────────
+    _report(6, f"📄 Renderowanie {page_count} stron…")
+    doc = fitz.open(pdf_path)
+    page_images = {}
+    mat = fitz.Matrix(_PAGE_DPI / 72, _PAGE_DPI / 72)
+    for i, page_idx in enumerate(page_indices):
+        pix = doc[page_idx].get_pixmap(matrix=mat)
+        page_images[page_idx] = base64.standard_b64encode(pix.tobytes("png")).decode()
+        if i % 50 == 0:
+            _report(6 + int(i / page_count * 4), f"📄 Renderowanie strony {i+1}/{page_count}…")
+    doc.close()
+
+    # ── Step 4: Send all pages in parallel ───────────────────────────────
+    _report(10, f"🚀 Wysyłanie {page_count} stron ({workers} ∥)…")
+    results = {}  # page_idx → text
+    collected_images = {}  # filename → bytes
+    failed = []
+    done_count = [0]
+
+    import threading
+    lock = threading.Lock()
+
+    def _process_page(page_idx):
+        try:
+            text, usage = _call_gemini_page(key, model, page_images[page_idx], prompt)
+            return page_idx, text, None
+        except Exception as e:
+            return page_idx, "", e
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_process_page, p): p for p in page_indices}
+        for f in as_completed(futures):
+            page_idx, text, err = f.result()
+
+            if err:
+                failed.append(page_idx)
+            elif not text or len(text.strip()) < 5:
+                failed.append(page_idx)
+            else:
+                # Check for illustration markers
+                stripped = text.strip()
+                if stripped.startswith("{{IMAGE:"):
+                    # Pure illustration — extract image from PDF
+                    img_bytes = _extract_pdf_page_image(pdf_path, page_idx)
+                    if img_bytes:
+                        fname = f"page_{page_idx+1:04d}.png"
+                        collected_images[fname] = img_bytes
+                        results[page_idx] = f"\n![Ilustracja strona {page_idx+1}](images/{fname})\n"
+                    else:
+                        results[page_idx] = ""  # empty illustration page
+                elif "{{IMAGE_TEXT:" in stripped:
+                    # Illustration with text — extract image AND keep text
+                    img_bytes = _extract_pdf_page_image(pdf_path, page_idx)
+                    if img_bytes:
+                        fname = f"page_{page_idx+1:04d}.png"
+                        collected_images[fname] = img_bytes
+                        # Remove the marker, keep the text
+                        clean_text = stripped.replace("{{IMAGE_TEXT:strona}}", "").strip()
+                        results[page_idx] = f"\n![Ilustracja strona {page_idx+1}](images/{fname})\n\n{clean_text}"
+                    else:
+                        results[page_idx] = stripped
+                else:
+                    # Verify translation with langdetect
+                    if translate_lang and not _verify_page_local(text, translate_lang):
+                        failed.append(page_idx)
+                    else:
+                        results[page_idx] = text
+
+            with lock:
+                done_count[0] += 1
+                pct = 10 + int(done_count[0] / page_count * 70)
+                if done_count[0] % 10 == 0 or done_count[0] == page_count:
+                    _report(pct, f"🚀 {mode}: {done_count[0]}/{page_count} stron…")
+
+    # ── Step 5: Retry failed pages (PARALLEL) ─────────────────────────────
+    if failed:
+        _report(80, f"🔄 Ponawiam {len(failed)} nieudanych stron (równolegle)…")
+
+        def _retry_page(page_idx):
+            """Retry a single page up to 3 times, escalating model on last try."""
+            for attempt in range(3):
+                try:
+                    retry_model = model if attempt < 2 else _ESCALATION_MODEL
+                    text, _ = _call_gemini_page(key, retry_model, page_images[page_idx], prompt)
+                    if text and len(text.strip()) > 5:
+                        if translate_lang and not _verify_page_local(text, translate_lang):
+                            if attempt == 2:
+                                return page_idx, text, "escalated"
+                            time.sleep(1)
+                            continue
+                        return page_idx, text, "recovered"
+                except Exception:
+                    time.sleep(2 * (attempt + 1))
+
+            # ── Fallback: extract raw text from PDF via fitz (no API) ──
+            # Handles PROHIBITED_CONTENT (safety filter) and persistent failures
+            try:
+                import fitz as _fitz
+                _doc = _fitz.open(pdf_path)
+                raw_text = _doc[page_idx].get_text().strip()
+                _doc.close()
+                if raw_text and len(raw_text) > 20:
+                    if translate_lang:
+                        # Strategy 1: Translate via litellm (user's configured provider)
+                        try:
+                            system = get_system_prompt(True, translate_lang, translate_from)
+                            translated = process_mega_block(raw_text, system, retries=2)
+                            if translated and len(translated.strip()) > 20:
+                                return page_idx, translated, "fitz+translate"
+                        except Exception:
+                            pass
+
+                        # Strategy 2: Direct Gemini text-only (minimal prompt, no image)
+                        try:
+                            import urllib.request
+                            import json as _json
+                            _url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+                            _prompt = f"Przetłumacz ten tekst na {translate_lang}. Zwróć TYLKO tłumaczenie:\n\n{raw_text}"
+                            _payload = {
+                                "contents": [{"parts": [{"text": _prompt}]}],
+                                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+                            }
+                            _req = urllib.request.Request(_url, _json.dumps(_payload).encode(), {"Content-Type": "application/json"})
+                            with urllib.request.urlopen(_req, timeout=30) as _r:
+                                _result = _json.loads(_r.read())
+                            _translated = _result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                            if _translated and len(_translated.strip()) > 20:
+                                return page_idx, _translated.strip(), "fitz+gemini_text"
+                        except Exception:
+                            pass
+
+                    # Last resort: return raw text (untranslated but present)
+                    return page_idx, raw_text, "fitz_raw"
+            except Exception:
+                pass
+
+            return page_idx, None, "failed"
+
+        with ThreadPoolExecutor(max_workers=min(workers, len(failed))) as pool:
+            retry_futures = {pool.submit(_retry_page, p): p for p in failed}
+            for f in as_completed(retry_futures):
+                page_idx, text, status = f.result()
+                if text:
+                    results[page_idx] = text
+                    _report(85, f"{'✅' if status == 'recovered' else '⚠️'} Strona {page_idx+1}: {status}")
+                else:
+                    results[page_idx] = f"\n\n[NIEPRZETŁUMACZONE — strona {page_idx+1}]\n\n"
+                    _report(85, f"❌ Strona {page_idx+1}: nie udało się")
+
+    # ── Step 6: Assemble in order ────────────────────────────────────────
+    _report(90, "📦 Składanie tekstu…")
+    ordered_pages = sorted(results.keys())
+    full_text = "\n\n".join(results[p] for p in ordered_pages)
+
+    # ── Step 7: Postprocessing ───────────────────────────────────────────
+    _report(95, "✨ Post-processing…")
+    full_text = _postprocess_text(full_text)
+
+    _report(100, f"✅ Gemini {mode} zakończone ({page_count} stron, {len(full_text):,} znaków)")
+    return full_text, collected_images
+
+
 def ocr_pdf(
     pdf_path: str,
     config: dict = None,
@@ -1322,8 +1858,9 @@ def ocr_pdf(
         page_end: Last page to OCR (1-indexed, 0 = to end)
 
     Returns:
-        str  — extracted markdown text (cloud OCR succeeded)
-        None — caller should fall back to local Marker OCR
+        str  — extracted markdown text (legacy mode)
+        tuple(str, dict) — (text, collected_images) from per-page engine
+        None — no cloud OCR available, caller should use local fitz extraction
     """
     if config is None:
         config = get_config()
@@ -1339,12 +1876,10 @@ def ocr_pdf(
                             page_start=page_start, page_end=page_end)
 
     if prov == "gemini":
-        return _gemini_ocr(pdf_path, config, progress_callback,
-                           translate_lang=translate_lang, translate_from=translate_from,
-                           page_start=page_start, page_end=page_end)
+        return _gemini_ocr_pages(pdf_path, config, progress_callback,
+                                translate_lang=translate_lang, translate_from=translate_from,
+                                page_start=page_start, page_end=page_end)
 
-    if prov == "marker":
-        return None  # explicit local mode
 
     # "auto" — try best available, fall back silently
     # 1. Mistral OCR (if the user has a Mistral key — either as OCR key or main key)
@@ -1361,14 +1896,14 @@ def ocr_pdf(
         except Exception as e:
             _report(0, f"Mistral OCR niedostępny ({e}) — próbuję Gemini...")
 
-    # 2. Gemini (if llm_provider is gemini)
+    # 2. Gemini (if llm_provider is gemini) — use per-page engine
     if c["llm_provider"] == "gemini" and c["llm_api_key"]:
         try:
-            return _gemini_ocr(pdf_path, config, progress_callback,
-                               translate_lang=translate_lang, translate_from=translate_from,
-                               page_start=page_start, page_end=page_end)
+            return _gemini_ocr_pages(pdf_path, config, progress_callback,
+                                    translate_lang=translate_lang, translate_from=translate_from,
+                                    page_start=page_start, page_end=page_end)
         except Exception:
-            _report(0, "Gemini OCR niedostępny — używam Marker...")
+            _report(0, "Gemini OCR niedostępny — próbuję lokalna ekstrakcję…")
 
-    return None  # fall back to Marker
+    return None  # no cloud OCR available — caller uses fitz extraction
 

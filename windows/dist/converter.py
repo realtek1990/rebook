@@ -6,7 +6,6 @@ Delegates AI correction/translation to corrector.py.
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import uuid
@@ -25,31 +24,6 @@ else:
     WORKSPACE_DIR = Path.home() / ".pdf2epub-app"
 
 
-def _find_marker():
-    """Find marker_single binary on current platform."""
-    import shutil
-    if sys.platform == "win32":
-        candidates = [
-            WORKSPACE_DIR / "env" / "Scripts" / "marker_single.exe",
-            Path(sys.prefix) / "Scripts" / "marker_single.exe",
-        ]
-        python_dir = Path.home() / "AppData" / "Local" / "Programs" / "Python"
-        if python_dir.exists():
-            for sub in python_dir.glob("Python3*"):
-                candidates.append(sub / "Scripts" / "marker_single.exe")
-    else:
-        candidates = [
-            WORKSPACE_DIR / "env" / "bin" / "marker_single",
-            Path(sys.prefix) / "bin" / "marker_single",
-        ]
-    for c in candidates:
-        if c.exists():
-            return str(c)
-    return shutil.which("marker_single")
-
-
-def is_marker_installed() -> bool:
-    return _find_marker() is not None
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -64,6 +38,8 @@ def convert_file(
     lang_from: str = "",
     lang_to: str = "polski",
     progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    page_start: int = 0,
+    page_end: int = 0,
 ) -> str:
     """Run the full conversion pipeline synchronously.
 
@@ -75,6 +51,8 @@ def convert_file(
         lang_from: Source language (empty = auto-detect).
         lang_to: Target language.
         progress_callback: ``fn(stage, percent, message)`` called on updates.
+        page_start: First PDF page to process (1-indexed, 0 = from beginning).
+        page_end: Last PDF page to process (1-indexed, 0 = to end).
 
     Returns:
         Absolute path to the output file.
@@ -117,23 +95,36 @@ def convert_file(
                            and ocr_cfg.get("llm_provider") == "gemini")
             try:
                 if can_combine:
-                    report("ocr", 5, f"OCR + tłumaczenie → {lang_to} (Gemini 3 Flash)…")
-                    cloud_text = corrector.ocr_pdf(
+                    report("ocr", 5, f"OCR + tłumaczenie → {lang_to} (Gemini Flash-Lite per-page)…")
+                    cloud_result = corrector.ocr_pdf(
                         str(src), config=cfg, progress_callback=progress_callback,
                         translate_lang=lang_to, translate_from=lang_from,
+                        page_start=page_start, page_end=page_end,
                     )
+                    # Handle new tuple format (text, images) from per-page engine
+                    if isinstance(cloud_result, tuple):
+                        cloud_text, pdf_images = cloud_result
+                        collected_images.update(pdf_images)
+                    else:
+                        cloud_text = cloud_result
                     ocr_already_translated = True
                 else:
-                    cloud_text = corrector.ocr_pdf(
-                        str(src), config=cfg, progress_callback=progress_callback
+                    cloud_result = corrector.ocr_pdf(
+                        str(src), config=cfg, progress_callback=progress_callback,
+                        page_start=page_start, page_end=page_end,
                     )
+                    if isinstance(cloud_result, tuple):
+                        cloud_text, pdf_images = cloud_result
+                        collected_images.update(pdf_images)
+                    else:
+                        cloud_text = cloud_result
             except Exception as e:
-                report("ocr", 0, f"⚠️ Cloud OCR nie powiodło się ({e}) — używam Marker…")
+                report("ocr", 0, f"⚠️ Cloud OCR nie powiodło się ({e}) — próbuję lokalną ekstrakcję…")
                 ocr_already_translated = False
         if cloud_text is not None:
             md_text = cloud_text
         else:
-            md_text = _run_marker(src, job_dir, progress_callback)
+            md_text = _fitz_extract_text(src, progress_callback)
         report("ocr", 100, "OCR zakończone")
 
     # ── Stage 2: AI Correction / Translation ──────────────────────────────
@@ -321,153 +312,41 @@ def _extract_epub(epub_path: Path, images_dir: Path) -> tuple[str, dict]:
     return "\n\n".join(parts), collected_images
 
 
-def _run_marker(pdf: Path, job_dir: Path, cb) -> str:
-    marker_bin = _find_marker()
-    if not marker_bin:
+def _fitz_extract_text(pdf: Path, cb) -> str:
+    """Local fallback: extract text layer from PDF using fitz (PyMuPDF).
+    Works for PDFs with embedded text layer. Does NOT do OCR on scanned images.
+    """
+    try:
+        import fitz
+    except ImportError:
         raise RuntimeError(
-            "Marker OCR nie jest zainstalowany.\n"
-            "Zainstaluj go w Ustawieniach (⚙️) → Install Marker OCR."
+            "Brak zainstalowanego PyMuPDF.\n"
+            "Uruchom: pip install PyMuPDF"
         )
 
-    # Try MPS first (fast), then fallback to CPU if OOM
-    for attempt, device in enumerate(["mps", "cpu"]):
-        result = _run_marker_attempt(marker_bin, pdf, job_dir, cb, device)
-        if result is not None:
-            return result
-        # MPS failed — retry on CPU
-        if cb:
-            cb("ocr", 0, "⚠️ Brak pamięci GPU — ponawiam na CPU…")
+    doc = fitz.open(str(pdf))
+    total = len(doc)
+    if cb:
+        cb("ocr", 5, f"Lokalna ekstrakcja tekstu — {total} stron…")
 
-    raise RuntimeError("Marker OCR failed — za mało RAM nawet w trybie CPU")
+    pages = []
+    for i in range(total):
+        text = doc[i].get_text().strip()
+        if text:
+            pages.append(text)
+        if cb and (i + 1) % 20 == 0:
+            pct = 5 + int(i / total * 90)
+            cb("ocr", pct, f"Ekstrakcja tekstu: {i+1}/{total}…")
+    doc.close()
 
+    if not pages:
+        raise RuntimeError(
+            "PDF nie zawiera warstwy tekstowej (skan).\n"
+            "Do przetworzenia skanów PDF wymagany jest klucz Gemini API.\n"
+            "Wpisz go w Ustawieniach (⚙️) → Klucz API."
+        )
 
-def _run_marker_attempt(marker_bin: str, pdf: Path, job_dir: Path, cb, device: str):
-    """Single attempt to run Marker OCR. Returns markdown text or None on OOM."""
-    marker_out = job_dir / "marker_output"
-    # Clean output dir from previous failed attempt
-    if marker_out.exists():
-        import shutil
-        shutil.rmtree(marker_out, ignore_errors=True)
-
-    # ── Environment ───────────────────────────────────────────────────────
-    env = os.environ.copy()
-    # Legacy env vars (still respected by some Marker versions)
-    for k in ("RECOGNITION_BATCH_SIZE", "DETECTOR_BATCH_SIZE",
-              "LAYOUT_BATCH_SIZE", "TABLE_REC_BATCH_SIZE", "OCR_ERROR_BATCH_SIZE"):
-        env[k] = "1"
-    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-    # Allow MPS to use full unified memory (prevents premature OOM on M-series)
-    env["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
-
-    if device == "cpu":
-        env["TORCH_DEVICE"] = "cpu"
-    else:
-        env.pop("TORCH_DEVICE", None)  # Let torch auto-select MPS
-
-    # ── Config JSON (Marker v1.10+ reads batch sizes from here) ───────────
-    config = {
-        "recognition_batch_size": 1,
-        "detector_batch_size": 1,
-        "layout_batch_size": 1,
-        "table_rec_batch_size": 1,
-        "ocr_error_batch_size": 1,
-    }
-    config_fd, config_path = tempfile.mkstemp(suffix=".json", prefix="marker_cfg_")
-    try:
-        with os.fdopen(config_fd, "w") as f:
-            json.dump(config, f)
-
-        cmd = [
-            marker_bin, str(pdf),
-            "--output_dir", str(marker_out),
-            "--output_format", "markdown",
-            "--config_json", config_path,
-        ]
-
-        popen_kwargs = {
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.STDOUT,
-            "env": env,
-        }
-        if sys.platform == "win32":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-        device_label = "GPU" if device != "cpu" else "CPU"
-        if cb:
-            cb("ocr", 0, f"OCR ({device_label}) — uruchamiam Marker…")
-
-        proc = subprocess.Popen(cmd, **popen_kwargs)
-
-        # Marker OCR has multiple internal phases, each reporting its own 0-100%.
-        # Map each phase to a sub-range so the user sees a single monotonic 0→100%.
-        phase_ranges = {
-            "detect":      (0, 20),
-            "layout":      (20, 40),
-            "recognition": (40, 60),
-            "ocr":         (40, 60),   # alias
-            "table":       (60, 75),
-            "order":       (75, 85),
-            "error":       (85, 95),
-            "cleanup":     (85, 95),   # alias
-        }
-        current_phase = "detect"
-        last_reported = -1
-        buf = ""
-
-        while True:
-            chunk = proc.stdout.read(128)
-            if not chunk:
-                break
-            buf += chunk.decode("utf-8", errors="replace")
-
-            # Detect phase changes from Marker's stdout
-            buf_lower = buf.lower()
-            for phase_key in phase_ranges:
-                if phase_key in buf_lower:
-                    current_phase = phase_key
-
-            # Parse latest percentage
-            m = list(re.finditer(r"(\d{1,3})%", buf))
-            if m and cb:
-                raw_pct = int(m[-1].group(1))
-                lo, hi = phase_ranges.get(current_phase, (0, 100))
-                mapped_pct = lo + int(raw_pct * (hi - lo) / 100)
-                mapped_pct = min(mapped_pct, 99)
-                if mapped_pct > last_reported:
-                    last_reported = mapped_pct
-                    phase_label = current_phase.capitalize()
-                    cb("ocr", mapped_pct, f"OCR ({device_label}/{phase_label}) — {mapped_pct}%")
-
-            if len(buf) > 2048:
-                buf = buf[-400:]
-
-        proc.wait()
-
-        if proc.returncode != 0:
-            # Check if it was an OOM / memory error — allow fallback
-            buf_lower = buf.lower()
-            is_oom = any(kw in buf_lower for kw in (
-                "out of memory", "oom", "mps backend", "memory",
-                "killed", "signal 9", "cannot allocate",
-            ))
-            if is_oom and device != "cpu":
-                return None  # Signal caller to retry on CPU
-            raise RuntimeError(
-                f"Marker OCR failed ({device_label}) — sprawdź czy masz wystarczająco RAM\n"
-                f"Ostatni log: {buf[-300:]}"
-            )
-
-        md_files = list(marker_out.rglob("*.md"))
-        if not md_files:
-            raise RuntimeError("Brak wyjścia Markdown z Marker OCR")
-        return md_files[0].read_text(encoding="utf-8")
-
-    finally:
-        # Clean up temp config file
-        try:
-            os.unlink(config_path)
-        except OSError:
-            pass
+    return "\n\n".join(pages)
 
 
 def _extract_cover(src: Path, book):
@@ -477,7 +356,7 @@ def _extract_cover(src: Path, book):
             import fitz
             doc = fitz.open(str(src))
             if len(doc) > 0:
-                pix = doc.load_page(0).get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+                pix = doc.load_page(0).get_pixmap(matrix=fitz.Matrix(3.0, 3.0))
                 book.set_cover("cover.png", pix.tobytes("png"))
         except Exception:
             pass

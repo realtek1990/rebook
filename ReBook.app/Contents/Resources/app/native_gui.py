@@ -45,7 +45,7 @@ MODELS = {
     "zhipu": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
     "openai": ["gpt-5-preview", "gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "o1-mini"],
     "anthropic": ["claude-4.6-opus", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-    "gemini": ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+    "gemini": ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
     "zhipuai": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
     "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"]
 }
@@ -641,38 +641,6 @@ class AppDelegate(NSObject):
             sv.addSubview_(llmSec)
             y += 24
 
-            # ── Marker OCR Section ────────────────────────────────
-            sep3 = NSBox.alloc().initWithFrame_(NSMakeRect(p, y, cw, 1))
-            sep3.setBoxType_(NSBoxSeparator)
-            sv.addSubview_(sep3)
-            y += 16
-
-            markerSec = _label(t("settings_marker_header"), size=11, bold=True, color=NSColor.secondaryLabelColor())
-            markerSec.setFrame_(NSMakeRect(p, y, cw, 14))
-            sv.addSubview_(markerSec)
-            y += 22
-
-            import converter
-            marker_ok = converter.is_marker_installed()
-            status_key = "settings_marker_installed" if marker_ok else "settings_marker_not_installed"
-            self._markerStatusLabel = _label(t(status_key), size=11,
-                color=NSColor.systemGreenColor() if marker_ok else NSColor.systemOrangeColor())
-            self._markerStatusLabel.setFrame_(NSMakeRect(p, y, cw, 14))
-            sv.addSubview_(self._markerStatusLabel)
-            y += 24
-
-            if not marker_ok:
-                self._markerInstallBtn = NSButton.alloc().initWithFrame_(NSMakeRect(p, y, cw, 32))
-                self._markerInstallBtn.setBezelStyle_(NSBezelStyleRounded)
-                self._markerInstallBtn.setTitle_(t("settings_marker_install_btn"))
-                self._markerInstallBtn.setTarget_(self)
-                self._markerInstallBtn.setAction_("installMarker:")
-                sv.addSubview_(self._markerInstallBtn)
-                y += 40
-            else:
-                self._markerInstallBtn = None
-                y += 8
-
             # ── OCR Provider Section ─────────────────────────────────────
             sep_ocr = NSBox.alloc().initWithFrame_(NSMakeRect(p, y, cw, 1))
             sep_ocr.setBoxType_(NSBoxSeparator)
@@ -690,7 +658,7 @@ class AppDelegate(NSObject):
             y += 20
 
             self._ocrProviderPopup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(p, y, cw, 26))
-            ocr_prov_options = ["Auto (najlepszy dostępny)", "Mistral OCR", "Gemini Cloud OCR", "Marker (lokalny)"]
+            ocr_prov_options = ["Auto (najlepszy dostępny)", "Mistral OCR", "Gemini Cloud OCR"]
             for opt in ocr_prov_options:
                 self._ocrProviderPopup.addItemWithTitle_(opt)
             sv.addSubview_(self._ocrProviderPopup)
@@ -776,60 +744,7 @@ class AppDelegate(NSObject):
         if models:
             self._modelField.addItemsWithObjectValues_(models)
 
-    @objc.IBAction
-    def installMarker_(self, sender):
-        if self._markerInstallBtn:
-            self._markerInstallBtn.setEnabled_(False)
-            self._markerInstallBtn.setTitle_(t("settings_marker_installing"))
-        threading.Thread(target=self._doInstallMarker, daemon=True).start()
 
-    @objc.python_method
-    def _doInstallMarker(self):
-        import subprocess, shutil
-        venv_dir = Path.home() / ".pdf2epub-app" / "env"
-        venv_pip = venv_dir / "bin" / "pip"
-
-        # If no venv exists (e.g. PyInstaller frozen mode), create one
-        if not venv_pip.exists():
-            sys_python = shutil.which("python3") or shutil.which("python")
-            if not sys_python:
-                self._scheduleUI("_markerInstallError",
-                    "python3 not found. Install Xcode CLT: xcode-select --install")
-                return
-            try:
-                subprocess.run([sys_python, "-m", "venv", str(venv_dir)],
-                               check=True, capture_output=True, timeout=60)
-            except Exception as e:
-                self._scheduleUI("_markerInstallError", f"venv creation failed: {e}")
-                return
-
-        try:
-            result = subprocess.run(
-                [str(venv_pip), "install", "marker-pdf"],
-                capture_output=True, text=True, timeout=600,
-            )
-            if result.returncode == 0:
-                self._scheduleUI("_markerInstallDone", None)
-            else:
-                self._scheduleUI("_markerInstallError", result.stderr[-300:])
-        except Exception as e:
-            self._scheduleUI("_markerInstallError", str(e))
-
-    @objc.python_method
-    def _markerInstallDone(self, _):
-        if self._markerInstallBtn:
-            self._markerInstallBtn.setHidden_(True)
-        self._markerStatusLabel.setStringValue_(t("settings_marker_done"))
-        self._markerStatusLabel.setTextColor_(NSColor.systemGreenColor())
-
-    @objc.python_method
-    def _markerInstallError(self, msg):
-        if self._markerInstallBtn:
-            self._markerInstallBtn.setEnabled_(True)
-            self._markerInstallBtn.setTitle_(t("settings_marker_install_btn"))
-        self._markerStatusLabel.setStringValue_(t("settings_marker_error"))
-        self._markerStatusLabel.setTextColor_(NSColor.systemRedColor())
-        self._showAlert(t("settings_marker_error"), str(msg))
 
     @objc.IBAction
     def openSettings_(self, sender):
@@ -846,7 +761,7 @@ class AppDelegate(NSObject):
             self._smtpEmailField.setStringValue_(cfg.get("smtp_email", ""))
             self._smtpPassField.setStringValue_(cfg.get("smtp_pass", ""))
             # OCR fields
-            ocr_map = {"auto": 0, "mistral": 1, "gemini": 2, "marker": 3}
+            ocr_map = {"auto": 0, "mistral": 1, "gemini": 2}
             ocr_idx = ocr_map.get(cfg.get("ocr_provider", "auto"), 0)
             if self._ocrProviderPopup:
                 self._ocrProviderPopup.selectItemAtIndex_(ocr_idx)
@@ -873,7 +788,7 @@ class AppDelegate(NSObject):
                 "kindle_email": str(self._kindleEmailField.stringValue()),
                 "smtp_email": str(self._smtpEmailField.stringValue()),
                 "smtp_pass": str(self._smtpPassField.stringValue()),
-                "ocr_provider": ["auto", "mistral", "gemini", "marker"][self._ocrProviderPopup.indexOfSelectedItem()] if self._ocrProviderPopup else "auto",
+                "ocr_provider": ["auto", "mistral", "gemini"][self._ocrProviderPopup.indexOfSelectedItem()] if self._ocrProviderPopup else "auto",
                 "ocr_api_key": str(self._ocrKeyField.stringValue()) if self._ocrKeyField else "",
             }
             save_config_file(data)
@@ -888,7 +803,6 @@ class AppDelegate(NSObject):
             return
         self._converting = True
         self._cancelFlag = False
-        self._markerProc = None  # Will hold subprocess ref for kill
         self._convertBtn.setEnabled_(False)
         self._convertBtn.setTitle_(t("converting_btn"))
         self._stopBtn.setHidden_(False)
@@ -1107,12 +1021,6 @@ class AppDelegate(NSObject):
         self._cancelFlag = True
         self._stageLabel.setStringValue_("⛔ Zatrzymywanie…")
         self._appendLog("⛔ Zatrzymywanie konwersji…")
-        # Kill Marker OCR subprocess if running
-        if self._markerProc and self._markerProc.poll() is None:
-            try:
-                self._markerProc.kill()
-            except Exception:
-                pass
 
     @objc.python_method
     def _runConversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0):

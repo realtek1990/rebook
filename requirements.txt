@@ -6,6 +6,7 @@ markdownify
 litellm
 PyMuPDF
 edge-tts>=7.0
+langdetect
 
 # ─── Image Translation (Nano Banana 2 / Gemini) ───
 google-genai

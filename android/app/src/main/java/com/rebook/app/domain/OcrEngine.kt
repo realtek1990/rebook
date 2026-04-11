@@ -31,7 +31,7 @@ object OcrEngine {
 
     private const val RENDER_DPI_SCALE = 2
     private const val MISTRAL_OCR_MODEL_DEFAULT = "mistral-ocr-latest"
-    private const val GEMINI_OCR_MODEL_DEFAULT  = "gemini-2.5-flash-lite"
+    private const val GEMINI_OCR_MODEL_DEFAULT  = "gemini-3.1-flash-lite-preview"
     private const val GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
     private const val MISTRAL_OCR_URL = "https://api.mistral.ai/v1/ocr"
 

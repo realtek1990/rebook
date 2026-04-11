@@ -1,17 +1,14 @@
 """ReBook for Linux — GUI with CustomTkinter.
 
 Full-featured e-book converter with AI translation/correction.
-First-run wizard auto-bootstraps a Python venv and installs dependencies.
 """
-import json, os, sys, shutil, smtplib, subprocess, threading, queue
+import json, os, sys, shutil, smtplib, threading, queue
 from pathlib import Path
 from email.message import EmailMessage
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 WORKSPACE = Path.home() / ".rebook"
-VENV_DIR = WORKSPACE / "env"
 CONFIG_FILE = WORKSPACE / "config.json"
-CORE_MARKER = WORKSPACE / ".core_installed"
 # In PyInstaller frozen mode, data files are in sys._MEIPASS
 if getattr(sys, 'frozen', False):
     APP_DIR = Path(sys._MEIPASS)
@@ -19,44 +16,6 @@ else:
     APP_DIR = Path(__file__).parent
 
 WORKSPACE.mkdir(parents=True, exist_ok=True)
-
-
-def _find_marker_bin():
-    """Find marker_single binary on Linux — checks venv, PATH, and local bin."""
-    import shutil
-    candidates = [
-        WORKSPACE / "env" / "bin" / "marker_single",
-        Path(sys.prefix) / "bin" / "marker_single",
-        Path.home() / ".local" / "bin" / "marker_single",
-    ]
-    for c in candidates:
-        if c.exists():
-            return str(c)
-    found = shutil.which("marker_single")
-    return found
-
-# ── Determine if running under venv ──────────────────────────────────────────
-def _in_venv():
-    return (VENV_DIR / "bin" / "python").exists() and \
-           sys.prefix == str(VENV_DIR)
-
-def _venv_python():
-    return str(VENV_DIR / "bin" / "python")
-
-def _get_system_ram_gb():
-    """Return total physical RAM in GB (Linux: /proc/meminfo)."""
-    try:
-        with open('/proc/meminfo', 'r') as f:
-            for line in f:
-                if line.startswith('MemTotal:'):
-                    kb = int(line.split()[1])
-                    return kb / (1024 ** 2)
-    except Exception:
-        pass
-    return 99.0  # assume enough RAM if detection fails
-
-# Minimum RAM (GB) for safe Marker OCR operation
-MIN_RAM_FOR_OCR_GB = 6.0
 
 # ── Config ───────────────────────────────────────────────────────────────────
 def load_config():
@@ -97,7 +56,7 @@ MODELS = {
                "o3-mini", "o1", "o1-mini"],
     "anthropic": ["claude-4.6-opus", "claude-3-7-sonnet-latest",
                   "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-    "gemini": ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+    "gemini": ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
     "zhipuai": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
     "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant",
              "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"],
@@ -112,150 +71,7 @@ LANGUAGES = [
     "serbski", "chorwacki",
 ]
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  FIRST-RUN INSTALLER WIZARD
-# ─────────────────────────────────────────────────────────────────────────────
 
-class InstallerWizard:
-    """Native first-run setup wizard using customtkinter."""
-
-    def __init__(self):
-        import customtkinter as ctk
-        self.ctk = ctk
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
-
-        self.root = ctk.CTkToplevel() if hasattr(ctk, '_default_root') and ctk._default_root else ctk.CTk()
-        self.root.title(t("inst_window_title"))
-        self.root.geometry("560x520")
-        self.root.resizable(False, False)
-
-        self._mode = "light"
-        self._build_ui()
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    def _on_close(self):
-        self.root.destroy()
-        sys.exit(0)
-
-    def _build_ui(self):
-        ctk = self.ctk
-        f = self.root
-
-        # Title
-        ctk.CTkLabel(f, text=t("inst_title"), font=ctk.CTkFont(size=22, weight="bold")).pack(pady=(24, 4))
-        ctk.CTkLabel(f, text=t("inst_subtitle"), font=ctk.CTkFont(size=12),
-                     text_color=("gray50", "gray70")).pack(pady=(0, 16))
-
-        # Section header
-        ctk.CTkLabel(f, text=t("inst_section_header"), font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color=("gray50", "gray70")).pack(anchor="w", padx=28, pady=(8, 4))
-
-        # Light option
-        self._radio_var = ctk.StringVar(value="light")
-        light_frame = ctk.CTkFrame(f, corner_radius=8)
-        light_frame.pack(fill="x", padx=24, pady=4)
-        ctk.CTkRadioButton(light_frame, text=t("inst_light_title"),
-                          variable=self._radio_var, value="light",
-                          font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
-        ctk.CTkLabel(light_frame, text=t("inst_light_desc"), font=ctk.CTkFont(size=11),
-                     justify="left", text_color=("gray50", "gray70")).pack(anchor="w", padx=32, pady=(0, 10))
-
-        # Full option
-        full_frame = ctk.CTkFrame(f, corner_radius=8)
-        full_frame.pack(fill="x", padx=24, pady=4)
-        ctk.CTkRadioButton(full_frame, text=t("inst_full_title"),
-                          variable=self._radio_var, value="full",
-                          font=ctk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=12, pady=(10, 2))
-        ctk.CTkLabel(full_frame, text=t("inst_full_desc"), font=ctk.CTkFont(size=11),
-                     justify="left", text_color=("gray50", "gray70")).pack(anchor="w", padx=32, pady=(0, 10))
-
-        # Progress area (hidden initially)
-        self._progress_frame = ctk.CTkFrame(f, corner_radius=8)
-        self._progress_label = ctk.CTkLabel(self._progress_frame, text=t("inst_preparing"),
-                                            font=ctk.CTkFont(size=12))
-        self._progress_label.pack(pady=(10, 4))
-        self._progress_bar = ctk.CTkProgressBar(self._progress_frame, width=480)
-        self._progress_bar.pack(pady=(0, 10), padx=20)
-        self._progress_bar.set(0)
-
-        # Install button
-        self._install_btn = ctk.CTkButton(f, text=t("inst_install_btn"),
-                                          font=ctk.CTkFont(size=14, weight="bold"),
-                                          height=42, command=self._start_install)
-        self._install_btn.pack(pady=16, padx=24, fill="x")
-
-        # Result label (hidden)
-        self._result_label = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=12))
-
-    def _start_install(self):
-        self._mode = self._radio_var.get()
-        self._install_btn.configure(state="disabled", text=t("inst_installing"))
-        self._progress_frame.pack(fill="x", padx=24, pady=4)
-        threading.Thread(target=self._do_install, daemon=True).start()
-
-    def _do_install(self):
-        try:
-            # 1. Create venv
-            self._update_progress(t("inst_preparing"), 0.05)
-            if not (VENV_DIR / "Scripts" / "python.exe").exists():
-                subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)],
-                             check=True, capture_output=True)
-
-            pip = str(VENV_DIR / "Scripts" / "pip.exe")
-            python = _venv_python()
-
-            # 2. Core packages
-            self._update_progress(t("inst_core_progress"), 0.15)
-            reqs = str(APP_DIR / "requirements.txt")
-            r = subprocess.run([pip, "install", "-r", reqs],
-                              capture_output=True, text=True)
-            if r.returncode != 0:
-                self._finish_error(t("inst_core_error") + "\n" + r.stderr[-500:])
-                return
-
-            self._update_progress(t("inst_core_progress"), 0.6)
-
-            # 3. Marker (full mode only)
-            if self._mode == "full":
-                self._update_progress(t("inst_marker_progress"), 0.65)
-                r2 = subprocess.run([pip, "install", "marker-pdf"],
-                                    capture_output=True, text=True)
-                if r2.returncode != 0:
-                    self._update_progress(t("inst_marker_warn"), 0.9)
-
-            # 4. Done
-            CORE_MARKER.touch()
-            self._update_progress(t("inst_done"), 1.0)
-            self.root.after(500, self._show_done)
-
-        except Exception as e:
-            self._finish_error(str(e))
-
-    def _update_progress(self, msg, pct):
-        self.root.after(0, lambda: (
-            self._progress_label.configure(text=msg),
-            self._progress_bar.set(pct)
-        ))
-
-    def _finish_error(self, msg):
-        self.root.after(0, lambda: (
-            self._progress_label.configure(text=msg, text_color="red"),
-            self._install_btn.configure(state="normal", text=t("inst_retry_btn"))
-        ))
-
-    def _show_done(self):
-        self._install_btn.configure(state="normal", text=t("inst_launch_btn"),
-                                    command=self._launch)
-        self._result_label.configure(text=t("inst_ready"))
-        self._result_label.pack(pady=4)
-
-    def _launch(self):
-        self.root.destroy()
-
-    def run(self):
-        self.root.mainloop()
-        return CORE_MARKER.exists()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -423,14 +239,7 @@ class ReBookApp:
             text_color=("gray10", "gray90"),
         )
 
-        # Verify translation (hidden, opt-in, shown when translate enabled)
-        self._verify_var = ctk.BooleanVar(value=False)
-        self._verify_check = ctk.CTkCheckBox(
-            f, text=t("verify_check"),
-            variable=self._verify_var,
-            font=ctk.CTkFont(size=11),
-            text_color=("gray10", "gray90"),
-        )
+
 
         # Language fields (hidden)
         self._lang_frame = ctk.CTkFrame(f, fg_color="transparent")
@@ -558,13 +367,10 @@ class ReBookApp:
         if self._translate_var.get():
             self._lang_frame.pack(fill="x", padx=28, pady=4)
             self._translate_img_check.pack(anchor="w", padx=44, pady=2)
-            self._verify_check.pack(anchor="w", padx=44, pady=2)
         else:
             self._lang_frame.pack_forget()
             self._translate_img_check.pack_forget()
-            self._verify_check.pack_forget()
             self._translate_img_var.set(False)
-            self._verify_var.set(False)
 
     # ── Settings ──
 
@@ -635,32 +441,13 @@ class ReBookApp:
         smtp_pass.insert(0, cfg.get("smtp_pass", ""))
         smtp_pass.pack(fill="x", padx=20, pady=2)
 
-        # ── Marker OCR Section ──
-        ctk.CTkLabel(win, text=t("settings_marker_header"),
-                     font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
-            anchor="w", padx=20, pady=(16, 4))
-
-        # Check multiple possible marker locations on Windows
-        marker_ok = _find_marker_bin() is not None
-        status_key = "settings_marker_installed" if marker_ok else "settings_marker_not_installed"
-        marker_status = ctk.CTkLabel(win, text=t(status_key), font=ctk.CTkFont(size=11),
-            text_color=("#2d8f2d", "#5dce5d") if marker_ok else ("orange", "orange"))
-        marker_status.pack(anchor="w", padx=20, pady=(2, 4))
-
-        if not marker_ok:
-            marker_btn = ctk.CTkButton(win, text=t("settings_marker_install_btn"),
-                                        height=32, command=lambda: self._install_marker_linux(
-                                            win, marker_btn, marker_status))
-            marker_btn.pack(fill="x", padx=20, pady=2)
-
-
         # ── OCR Provider Section ──
         ctk.CTkLabel(win, text="OCR",
                      font=ctk.CTkFont(size=11, weight="bold"), text_color=("gray50", "gray70")).pack(
             anchor="w", padx=20, pady=(16, 4))
 
-        ocr_providers_display = ["Auto (najlepszy dostępny)", "Mistral OCR", "Gemini Cloud OCR", "Marker (lokalny)"]
-        ocr_providers_keys    = ["auto", "mistral", "gemini", "marker"]
+        ocr_providers_display = ["Auto (najlepszy dostępny)", "Mistral OCR", "Gemini Cloud OCR"]
+        ocr_providers_keys    = ["auto", "mistral", "gemini"]
         cur_ocr = cfg.get("ocr_provider", "auto")
         cur_ocr_idx = ocr_providers_keys.index(cur_ocr) if cur_ocr in ocr_providers_keys else 0
 
@@ -700,90 +487,7 @@ class ReBookApp:
         win.update()
         win.after(100, lambda: (win.lift(), win.focus_force(), win.grab_set()))
 
-    def _install_marker_linux(self, win, btn, status_label):
-        """Install Marker OCR via pip on Linux."""
-        btn.configure(state="disabled", text=t("settings_marker_installing"))
-        def _do():
-            import shutil as _sh
-            venv_dir = WORKSPACE / "env"
-            venv_pip = venv_dir / "bin" / "pip"
 
-            # If no venv exists (e.g. PyInstaller frozen mode), create one
-            if not venv_pip.exists():
-                win.after(0, lambda: status_label.configure(
-                    text="⏳ Tworzenie środowiska Python...", text_color="orange"
-                ))
-                # Find a system python3 to create venv with
-                sys_python = _sh.which("python3") or _sh.which("python")
-                if not sys_python:
-                    win.after(0, lambda: (
-                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                        status_label.configure(
-                            text="❌ python3 not found. Install: sudo apt install python3 python3-venv",
-                            text_color="red"),
-                    ))
-                    return
-                try:
-                    subprocess.run([sys_python, "-m", "venv", str(venv_dir)],
-                                   check=True, capture_output=True, timeout=60)
-                except Exception as e:
-                    win.after(0, lambda: (
-                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                        status_label.configure(
-                            text=f"❌ venv creation failed: {e}",
-                            text_color="red"),
-                    ))
-                    return
-
-            # Now we have a venv with pip
-            if venv_pip.exists():
-                pip = str(venv_pip)
-            else:
-                pip = _sh.which("pip") or _sh.which("pip3")
-
-            if not pip:
-                win.after(0, lambda: (
-                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                    status_label.configure(
-                        text="❌ pip not found. Install: sudo apt install python3-pip python3-venv",
-                        text_color="red"),
-                ))
-                return
-
-            win.after(0, lambda: status_label.configure(
-                text="⏳ Pobieranie Marker OCR (~1 GB)...", text_color="orange"
-            ))
-
-            try:
-                p = subprocess.Popen([pip, "install", "marker-pdf"],
-                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True)
-                for line in p.stdout:
-                    txt = line.strip()
-                    if txt and len(txt) > 2:
-                        show_txt = txt[:60] + "..." if len(txt) > 60 else txt
-                        win.after(0, lambda m=show_txt: status_label.configure(
-                            text=f"⏳ {m}", text_color="orange"
-                        ))
-
-                p.wait(timeout=900)
-                if p.returncode == 0:
-                    win.after(0, lambda: (
-                        btn.pack_forget(),
-                        status_label.configure(text=t("settings_marker_done"),
-                                               text_color=("#2d8f2d", "#5dce5d")),
-                    ))
-                else:
-                    win.after(0, lambda: (
-                        btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                        status_label.configure(text="❌ Marker install failed", text_color="red"),
-                    ))
-            except Exception as e:
-                win.after(0, lambda: (
-                    btn.configure(state="normal", text=t("settings_marker_install_btn")),
-                    status_label.configure(text=t("settings_marker_error"), text_color="red"),
-                ))
-        threading.Thread(target=_do, daemon=True).start()
 
     # ── Conversion ──
 
@@ -791,19 +495,7 @@ class ReBookApp:
         if not self._selected_file or self._converting:
             return
 
-        # ── Hardware safety check for PDF files (require Marker OCR) ──
-        is_pdf = Path(self._selected_file).suffix.lower() == ".pdf"
-        if is_pdf:
-            ram_gb = _get_system_ram_gb()
-            if ram_gb < MIN_RAM_FOR_OCR_GB:
-                from tkinter import messagebox
-                proceed = messagebox.askyesno(
-                    t("hw_warn_title"),
-                    t("hw_warn_low_ram", ram_gb=ram_gb),
-                    icon="warning",
-                )
-                if not proceed:
-                    return
+
 
         self._converting = True
         self._cancel_flag = False
@@ -823,12 +515,11 @@ class ReBookApp:
         fmt = FORMAT_KEYS[fmt_idx]
         translate = self._translate_var.get()
         translate_images = self._translate_img_var.get() if translate else False
-        verify = self._verify_var.get() if translate else False
         use_llm = self._ai_var.get() or translate
         lang_from = self._lang_from.get() if translate else ""
         lang_to = self._lang_to.get() if translate else "polski"
 
-        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, verify, lang_from, lang_to)
+        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, lang_from, lang_to)
 
         # Page range (PDF only)
         page_start = 0
@@ -852,7 +543,7 @@ class ReBookApp:
         self._stage_label.configure(text="⛔ Zatrzymywanie…")
         self._append_log("⛔ Zatrzymywanie konwersji…")
 
-    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, verify, lang_from, lang_to, page_start=0, page_end=0):
+    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0):
         try:
             import converter
 
@@ -867,7 +558,6 @@ class ReBookApp:
                 use_llm=use_llm,
                 use_translate=translate,
                 translate_images=translate_images,
-                verify_translation=verify,
                 lang_from=lang_from,
                 lang_to=lang_to,
                 progress_callback=_progress_with_cancel,
@@ -1013,37 +703,16 @@ class ReBookApp:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    # ── PyInstaller bundle: everything is already inside the .exe ─────────
-    frozen = getattr(sys, 'frozen', False)
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-    if frozen:
-        # All deps are bundled — skip venv/pip, go straight to app
-        # Ensure WORKSPACE exists for config
-        WORKSPACE.mkdir(parents=True, exist_ok=True)
-        CORE_MARKER.touch()  # mark as "installed"
-        app = ReBookApp()
-        app.run()
-        return
-
-    # ── Running from source (dev mode) ────────────────────────────────────
     try:
         import customtkinter  # noqa
     except ImportError:
+        import subprocess
         subprocess.run([sys.executable, "-m", "pip", "install", "customtkinter"],
                       capture_output=True)
 
-    # Check if first run
-    if not CORE_MARKER.exists():
-        wizard = InstallerWizard()
-        if not wizard.run():
-            sys.exit(0)
-
-    # Re-exec under venv if needed
-    venv_py = _venv_python()
-    if os.path.exists(venv_py) and os.path.realpath(sys.executable) != os.path.realpath(venv_py):
-        os.execv(venv_py, [venv_py, __file__] + sys.argv[1:])
-
-    # Launch main app
+    # Launch main app directly — plug & play
     app = ReBookApp()
     app.run()
 
