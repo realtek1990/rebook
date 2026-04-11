@@ -19,7 +19,7 @@ WORKSPACE = Path.home() / ".pdf2epub-app"
 CONFIG_FILE = WORKSPACE / "config.json"
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-W, H = 660, 800
+W, H = 660, 920
 PAD = 24
 CW = W - 2 * PAD
 
@@ -430,7 +430,7 @@ class AppDelegate(NSObject):
         cv.addSubview_(abHeader)
         top -= 22
 
-        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 90, CW, 86))
+        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 80, CW, 76))
 
         # Voice popup
         voice_keys = list(tts_engine.VOICES.keys())
@@ -479,7 +479,7 @@ class AppDelegate(NSObject):
         self._audiobookPanel.addSubview_(self._audiobookBtn)
 
         cv.addSubview_(self._audiobookPanel)
-        top -= 94
+        top -= 84
 
         self._progressBar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(PAD, top - 6, CW, 6))
         self._progressBar.setStyle_(NSProgressIndicatorBarStyle)
@@ -497,18 +497,18 @@ class AppDelegate(NSObject):
         cv.addSubview_(self._stageLabel)
         top -= 24
 
-        self._logScroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(PAD, top - 150, CW, 150))
+        self._logScroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(PAD, top - 100, CW, 100))
         self._logScroll.setBorderType_(NSBezelBorder)
         self._logScroll.setHasVerticalScroller_(True)
         self._logScroll.setHidden_(True)
-        self._logText = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, CW - 16, 150))
+        self._logText = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, CW - 16, 100))
         self._logText.setEditable_(False)
         self._logText.setFont_(NSFont.monospacedSystemFontOfSize_weight_(10, 0.0))
         self._logText.setTextColor_(NSColor.secondaryLabelColor())
         self._logText.setBackgroundColor_(NSColor.textBackgroundColor())
         self._logScroll.setDocumentView_(self._logText)
         cv.addSubview_(self._logScroll)
-        top -= 158
+        top -= 108
 
         self._resultView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 56, CW, 50))
         self._resultView.setHidden_(True)
