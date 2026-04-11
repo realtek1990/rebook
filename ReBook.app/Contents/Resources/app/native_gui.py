@@ -529,8 +529,16 @@ class AppDelegate(NSObject):
         self._kindleBtn.setAction_("sendKindle:")
         self._resultView.addSubview_(self._kindleBtn)
 
+        # Show in Finder button
+        self._revealBtn = NSButton.alloc().initWithFrame_(NSMakeRect(246, 0, 140, 28))
+        self._revealBtn.setBezelStyle_(NSBezelStyleRounded)
+        self._revealBtn.setTitle_("📂 Pokaż w Finderze")
+        self._revealBtn.setTarget_(self)
+        self._revealBtn.setAction_("revealInFinder:")
+        self._resultView.addSubview_(self._revealBtn)
+
         # Audiobook result button (shown after audiobook generation)
-        self._audiobookResultBtn = NSButton.alloc().initWithFrame_(NSMakeRect(246, 0, 130, 28))
+        self._audiobookResultBtn = NSButton.alloc().initWithFrame_(NSMakeRect(394, 0, 130, 28))
         self._audiobookResultBtn.setBezelStyle_(NSBezelStyleRounded)
         self._audiobookResultBtn.setTitle_("📂 Otwórz folder")
         self._audiobookResultBtn.setTarget_(self)
@@ -1175,6 +1183,13 @@ class AppDelegate(NSObject):
         if panel.runModal() == NSModalResponseOK:
             dest = panel.URL().path()
             shutil.copy2(str(src), dest)
+
+    @objc.IBAction
+    def revealInFinder_(self, sender):
+        if not self._outputPath: return
+        from AppKit import NSWorkspace, NSURL
+        url = NSURL.fileURLWithPath_(str(self._outputPath))
+        NSWorkspace.sharedWorkspace().activateFileViewerSelectingURLs_([url])
 
     @objc.IBAction
     def sendKindle_(self, sender):
