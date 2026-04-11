@@ -356,7 +356,7 @@ class AppDelegate(NSObject):
         self._pageCountLabel.setFrame_(NSMakeRect(236, 6, 180, 16))
         self._pageRangeView.addSubview_(self._pageCountLabel)
         cv.addSubview_(self._pageRangeView)
-        top -= 26
+        top -= 2
 
         self._translateCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 22, CW, 20))
         self._translateCheck.setButtonType_(NSSwitchButton)
@@ -372,7 +372,7 @@ class AppDelegate(NSObject):
         self._translateImgCheck.setFont_(NSFont.systemFontOfSize_(11))
         self._translateImgCheck.setHidden_(True)
         cv.addSubview_(self._translateImgCheck)
-        top -= 20
+        top -= 2
 
         self._langView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 60, CW, 56))
         self._langView.setHidden_(True)
@@ -397,7 +397,7 @@ class AppDelegate(NSObject):
         self._langToField.setNumberOfVisibleItems_(10)
         self._langView.addSubview_(self._langToField)
         cv.addSubview_(self._langView)
-        top -= 58
+        top -= 2
 
         self._convertBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 36, CW - 100, 36))
         self._convertBtn.setBezelStyle_(NSBezelStyleRounded)
@@ -428,9 +428,9 @@ class AppDelegate(NSObject):
         abHeader = _label("🎧 Audiobook", size=13, bold=True)
         abHeader.setFrame_(NSMakeRect(PAD, top - 16, CW, 16))
         cv.addSubview_(abHeader)
-        top -= 18
+        top -= 22
 
-        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 74, CW, 70))
+        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 86, CW, 86))
 
         # Voice popup
         voice_keys = list(tts_engine.VOICES.keys())
@@ -456,11 +456,11 @@ class AppDelegate(NSObject):
 
         # EPUB source label
         self._audiobookEpubLabel = _label("Źródło: brak (skonwertuj lub wybierz EPUB)", size=11, color=NSColor.secondaryLabelColor())
-        self._audiobookEpubLabel.setFrame_(NSMakeRect(0, 38, CW - 140, 16))
+        self._audiobookEpubLabel.setFrame_(NSMakeRect(0, 42, CW - 140, 16))
         self._audiobookPanel.addSubview_(self._audiobookEpubLabel)
 
         # Pick EPUB button
-        pickEpubBtn = NSButton.alloc().initWithFrame_(NSMakeRect(CW - 130, 34, 128, 24))
+        pickEpubBtn = NSButton.alloc().initWithFrame_(NSMakeRect(CW - 130, 38, 128, 24))
         pickEpubBtn.setBezelStyle_(NSBezelStyleRounded)
         pickEpubBtn.setTitle_("📂 Wybierz EPUB")
         pickEpubBtn.setFont_(NSFont.systemFontOfSize_(11))
@@ -470,7 +470,7 @@ class AppDelegate(NSObject):
         self._audiobookPickedEpub = None  # path to manually picked epub
 
         # Generate audiobook button
-        self._audiobookBtn = NSButton.alloc().initWithFrame_(NSMakeRect(0, 4, CW - 2, 26))
+        self._audiobookBtn = NSButton.alloc().initWithFrame_(NSMakeRect(0, 8, CW - 2, 26))
         self._audiobookBtn.setBezelStyle_(NSBezelStyleRounded)
         self._audiobookBtn.setTitle_("🎧 Generuj audiobook")
         self._audiobookBtn.setFont_(NSFont.systemFontOfSize_weight_(13, 0.3))
@@ -479,7 +479,7 @@ class AppDelegate(NSObject):
         self._audiobookPanel.addSubview_(self._audiobookBtn)
 
         cv.addSubview_(self._audiobookPanel)
-        top -= 78
+        top -= 92
 
         self._progressBar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(PAD, top - 6, CW, 6))
         self._progressBar.setStyle_(NSProgressIndicatorBarStyle)
