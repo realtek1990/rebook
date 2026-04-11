@@ -19,7 +19,7 @@ WORKSPACE = Path.home() / ".pdf2epub-app"
 CONFIG_FILE = WORKSPACE / "config.json"
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-W, H = 660, 920
+W, H = 660, 800
 PAD = 24
 CW = W - 2 * PAD
 
@@ -261,14 +261,14 @@ class AppDelegate(NSObject):
 
         # Miejsca zaczynamy od góry i schodzimy w dół układając layout
         title = _label("ReBook", size=22, bold=True)
-        title.setFrame_(NSMakeRect(PAD, top - 44, CW - 40, 28))
+        title.setFrame_(NSMakeRect(PAD, top - 36, CW - 40, 28))
         cv.addSubview_(title)
 
         sub = _label(t("app_subtitle"), size=12, color=NSColor.secondaryLabelColor())
-        sub.setFrame_(NSMakeRect(PAD, top - 62, CW, 16))
+        sub.setFrame_(NSMakeRect(PAD, top - 52, CW, 16))
         cv.addSubview_(sub)
 
-        gear = NSButton.alloc().initWithFrame_(NSMakeRect(W - PAD - 36, top - 48, 36, 36))
+        gear = NSButton.alloc().initWithFrame_(NSMakeRect(W - PAD - 36, top - 40, 36, 36))
         gear.setBezelStyle_(NSBezelStyleRounded)
         sfImg = NSImage.imageWithSystemSymbolName_accessibilityDescription_("gearshape", t("menu_settings"))
         if sfImg:
@@ -280,12 +280,12 @@ class AppDelegate(NSObject):
         gear.setAction_("openSettings:")
         cv.addSubview_(gear)
 
-        top -= 76
+        top -= 58
 
-        self._dropView = DropView.alloc().initWithFrame_(NSMakeRect(PAD, top - 120, CW, 120))
+        self._dropView = DropView.alloc().initWithFrame_(NSMakeRect(PAD, top - 100, CW, 100))
         cv.addSubview_(self._dropView)
 
-        self._fileBadgeView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 120, CW, 120))
+        self._fileBadgeView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 100, CW, 100))
         self._fileBadgeView.setHidden_(True)
         self._fileLabel = _label("\u2014", size=13, bold=True)
         self._fileLabel.setFrame_(NSMakeRect(8, 62, CW - 80, 18))
@@ -302,17 +302,17 @@ class AppDelegate(NSObject):
         self._fileBadgeView.addSubview_(rmBtn)
         cv.addSubview_(self._fileBadgeView)
         
-        top -= 130
+        top -= 108
 
         sep = NSBox.alloc().initWithFrame_(NSMakeRect(PAD, top, CW, 1))
         sep.setBoxType_(NSBoxSeparator)
         cv.addSubview_(sep)
-        top -= 16
+        top -= 10
 
         optH = _label(t("options_header"), size=11, bold=True, color=NSColor.secondaryLabelColor())
         optH.setFrame_(NSMakeRect(PAD, top - 14, CW, 14))
         cv.addSubview_(optH)
-        top -= 28
+        top -= 22
 
         fmtLabel = _label(t("format_label"), size=13)
         fmtLabel.setFrame_(NSMakeRect(PAD, top - 22, 140, 20))
@@ -326,14 +326,14 @@ class AppDelegate(NSObject):
         self._formatCtrl.setSelectedSegment_(0)
         self._formatCtrl.setSegmentStyle_(NSSegmentStyleRounded)
         cv.addSubview_(self._formatCtrl)
-        top -= 38
+        top -= 32
 
         self._aiCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 22, CW, 20))
         self._aiCheck.setButtonType_(NSSwitchButton)
         self._aiCheck.setTitle_(t("ai_check"))
         self._aiCheck.setState_(NSOnState)
         cv.addSubview_(self._aiCheck)
-        top -= 30
+        top -= 24
 
         # ── Page Range (PDF only, hidden by default) ──────────────────
         self._pageRangeView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 30, CW, 28))
@@ -356,7 +356,7 @@ class AppDelegate(NSObject):
         self._pageCountLabel.setFrame_(NSMakeRect(236, 6, 180, 16))
         self._pageRangeView.addSubview_(self._pageCountLabel)
         cv.addSubview_(self._pageRangeView)
-        top -= 32
+        top -= 26
 
         self._translateCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 22, CW, 20))
         self._translateCheck.setButtonType_(NSSwitchButton)
@@ -364,7 +364,7 @@ class AppDelegate(NSObject):
         self._translateCheck.setTarget_(self)
         self._translateCheck.setAction_("toggleTranslate:")
         cv.addSubview_(self._translateCheck)
-        top -= 28
+        top -= 22
 
         self._translateImgCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD + 20, top - 22, CW - 20, 20))
         self._translateImgCheck.setButtonType_(NSSwitchButton)
@@ -372,7 +372,7 @@ class AppDelegate(NSObject):
         self._translateImgCheck.setFont_(NSFont.systemFontOfSize_(11))
         self._translateImgCheck.setHidden_(True)
         cv.addSubview_(self._translateImgCheck)
-        top -= 26
+        top -= 20
 
         self._langView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 60, CW, 56))
         self._langView.setHidden_(True)
@@ -397,9 +397,9 @@ class AppDelegate(NSObject):
         self._langToField.setNumberOfVisibleItems_(10)
         self._langView.addSubview_(self._langToField)
         cv.addSubview_(self._langView)
-        top -= 68
+        top -= 58
 
-        self._convertBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 40, CW - 100, 40))
+        self._convertBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD, top - 36, CW - 100, 36))
         self._convertBtn.setBezelStyle_(NSBezelStyleRounded)
         self._convertBtn.setTitle_(t("convert_btn"))
         self._convertBtn.setFont_(NSFont.systemFontOfSize_weight_(14, 0.3))
@@ -409,7 +409,7 @@ class AppDelegate(NSObject):
         self._convertBtn.setEnabled_(False)
         cv.addSubview_(self._convertBtn)
 
-        self._stopBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD + CW - 90, top - 40, 90, 40))
+        self._stopBtn = NSButton.alloc().initWithFrame_(NSMakeRect(PAD + CW - 90, top - 36, 90, 36))
         self._stopBtn.setBezelStyle_(NSBezelStyleRounded)
         self._stopBtn.setTitle_("⛔ Stop")
         self._stopBtn.setFont_(NSFont.systemFontOfSize_weight_(13, 0.3))
@@ -417,20 +417,20 @@ class AppDelegate(NSObject):
         self._stopBtn.setAction_("stopConversion:")
         self._stopBtn.setHidden_(True)
         cv.addSubview_(self._stopBtn)
-        top -= 52
+        top -= 44
 
         # ── Audiobook panel — always visible ─────────────────────────────
         sep_ab = NSBox.alloc().initWithFrame_(NSMakeRect(PAD, top, CW, 1))
         sep_ab.setBoxType_(NSBoxSeparator)
         cv.addSubview_(sep_ab)
-        top -= 12
+        top -= 8
 
         abHeader = _label("🎧 Audiobook", size=13, bold=True)
         abHeader.setFrame_(NSMakeRect(PAD, top - 16, CW, 16))
         cv.addSubview_(abHeader)
-        top -= 22
+        top -= 18
 
-        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 80, CW, 76))
+        self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 74, CW, 70))
 
         # Voice popup
         voice_keys = list(tts_engine.VOICES.keys())
@@ -479,7 +479,7 @@ class AppDelegate(NSObject):
         self._audiobookPanel.addSubview_(self._audiobookBtn)
 
         cv.addSubview_(self._audiobookPanel)
-        top -= 84
+        top -= 78
 
         self._progressBar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(PAD, top - 6, CW, 6))
         self._progressBar.setStyle_(NSProgressIndicatorBarStyle)
@@ -489,26 +489,26 @@ class AppDelegate(NSObject):
         self._progressBar.setDoubleValue_(0)
         self._progressBar.setHidden_(True)
         cv.addSubview_(self._progressBar)
-        top -= 14
+        top -= 10
 
         self._stageLabel = _label("", size=12, color=NSColor.secondaryLabelColor())
         self._stageLabel.setFrame_(NSMakeRect(PAD, top - 16, CW, 16))
         self._stageLabel.setHidden_(True)
         cv.addSubview_(self._stageLabel)
-        top -= 24
+        top -= 18
 
-        self._logScroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(PAD, top - 100, CW, 100))
+        self._logScroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(PAD, top - 80, CW, 80))
         self._logScroll.setBorderType_(NSBezelBorder)
         self._logScroll.setHasVerticalScroller_(True)
         self._logScroll.setHidden_(True)
-        self._logText = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, CW - 16, 100))
+        self._logText = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, CW - 16, 80))
         self._logText.setEditable_(False)
         self._logText.setFont_(NSFont.monospacedSystemFontOfSize_weight_(10, 0.0))
         self._logText.setTextColor_(NSColor.secondaryLabelColor())
         self._logText.setBackgroundColor_(NSColor.textBackgroundColor())
         self._logScroll.setDocumentView_(self._logText)
         cv.addSubview_(self._logScroll)
-        top -= 108
+        top -= 88
 
         self._resultView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 56, CW, 50))
         self._resultView.setHidden_(True)

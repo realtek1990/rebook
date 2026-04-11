@@ -140,8 +140,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'ReBook',
         'CFBundleDisplayName': 'ReBook',
-        'CFBundleShortVersionString': '3.9.6',
-        'CFBundleVersion': '3.9.6',
+        'CFBundleShortVersionString': '3.12.2',
+        'CFBundleVersion': '3.12.2',
         'LSMinimumSystemVersion': '11.0',
         'NSHighResolutionCapable': True,
         'CFBundleDocumentTypes': [
