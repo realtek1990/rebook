@@ -1514,7 +1514,7 @@ def _call_gemini_page(
     model: str,
     image_b64: str,
     prompt: str,
-    timeout: int = 60,
+    timeout: int = 120,
 ) -> tuple[str, dict]:
     """Send a single page image to Gemini for OCR.
     Returns (text, usage_metadata).
