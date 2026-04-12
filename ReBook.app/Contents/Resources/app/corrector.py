@@ -1213,7 +1213,7 @@ def _gemini_ocr(
         mode_label = f"OCR + tłumaczenie → {translate_lang}"
     else:
         configured_model = c["model"]
-        model = (configured_model if configured_model.startswith("gemini")
+        model = (configured_model if configured_model.startswith(("gemini", "gemma"))
                  else _GEMINI_OCR_MODEL)
         prompt = _OCR_PROMPT
         mode_label = "OCR"
@@ -1405,6 +1405,7 @@ def _build_glossary(
     lang_to: str,
     lang_from: str = "",
     sample_pages: list[int] = None,
+    model: str = "",
 ) -> str:
     """Build a terminology glossary from sample pages of the PDF.
     Returns a formatted glossary string to include in prompts.
@@ -1445,7 +1446,8 @@ def _build_glossary(
     for img in images_b64:
         parts.append({"inline_data": {"mime_type": "image/png", "data": img}})
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{_GEMINI_OCR_MODEL}:generateContent?key={api_key}"
+    _glossary_model = model or _GEMINI_OCR_MODEL
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{_glossary_model}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": parts}],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
@@ -1669,7 +1671,8 @@ def _gemini_ocr_pages(
     if not key:
         raise RuntimeError("Brak klucza Gemini API dla Cloud OCR.")
 
-    model = _GEMINI_OCR_MODEL
+    # Use user-selected model from config, fallback to default
+    model = (config or {}).get("model_name", "").strip() or _GEMINI_OCR_MODEL
     default_workers = _GEMMA_OCR_WORKERS if _is_gemma(model) else _DEFAULT_OCR_WORKERS
     workers = int((config or {}).get("ocr_workers", default_workers))
     if _is_gemma(model):
@@ -1692,7 +1695,7 @@ def _gemini_ocr_pages(
     if translate_lang:
         _report(3, "📖 Budowanie glosariusza terminów…")
         try:
-            glossary = _build_glossary(pdf_path, key, translate_lang, translate_from)
+            glossary = _build_glossary(pdf_path, key, translate_lang, translate_from, model=model)
             if glossary:
                 _report(5, f"📖 Glosariusz: {len(glossary.splitlines())} terminów")
         except Exception:
