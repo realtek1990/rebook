@@ -1556,13 +1556,26 @@ def _call_gemini_page(
     import json as _json
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    payload = {
-        "contents": [{"parts": [
-            {"text": prompt},
-            {"inline_data": {"mime_type": "image/png", "data": image_b64}},
-        ]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
-    }
+
+    is_gemma = "gemma" in model.lower()
+    if is_gemma:
+        # Gemma: use systemInstruction to prevent prompt echo/"thinking aloud"
+        payload = {
+            "systemInstruction": {"parts": [{"text": prompt}]},
+            "contents": [{"parts": [
+                {"text": "OCR this page."},
+                {"inline_data": {"mime_type": "image/png", "data": image_b64}},
+            ]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+        }
+    else:
+        payload = {
+            "contents": [{"parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": "image/png", "data": image_b64}},
+            ]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+        }
     data = _json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
 
