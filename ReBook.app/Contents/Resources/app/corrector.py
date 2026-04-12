@@ -1810,91 +1810,21 @@ def _gemini_ocr_pages(
                 if done_count[0] % 10 == 0 or done_count[0] == page_count:
                     _report(pct, f"🚀 {mode}: {done_count[0]}/{page_count} stron…")
 
-    # ── Step 5: Retry failed pages (PARALLEL) ─────────────────────────────
-    if failed and not _abort_flag[0]:
-        # Show error summary before retrying
+    # ── Step 5: Report failures ────────────────────────────────────────────
+    if failed:
         error_types = {}
         for idx in failed:
             reason = failed_errors.get(idx, "nieznany")
             error_types[reason] = error_types.get(reason, 0) + 1
         for reason, count in error_types.items():
-            _report(80, f"  {reason} ({count}x)")
-        _report(80, f"🔄 Ponawiam {len(failed)} nieudanych stron (równolegle)…")
-    elif failed and _abort_flag[0]:
-        _report(80, f"⛔ Pominięto retry — {len(failed)}/{page_count} stron nie powiodło się z powodu błędu klucza API")
-        _report(80, f"💡 Sprawdź klucz API w ustawieniach (⚙️) i spróbuj ponownie")
-    if failed and not _abort_flag[0]:
-
-        def _retry_page(page_idx):
-            """Retry a single page up to 3 times, escalating model on last try."""
-            for attempt in range(3):
-                try:
-                    retry_model = model if attempt < 2 else _ESCALATION_MODEL
-                    text, _ = _call_gemini_page(key, retry_model, page_images[page_idx], prompt)
-                    if text and len(text.strip()) > 5:
-                        if translate_lang and not _verify_page_local(text, translate_lang):
-                            if attempt == 2:
-                                return page_idx, text, "escalated"
-                            time.sleep(1)
-                            continue
-                        return page_idx, text, "recovered"
-                except Exception:
-                    time.sleep(2 * (attempt + 1))
-
-            # ── Fallback: extract raw text from PDF via fitz (no API) ──
-            # Handles PROHIBITED_CONTENT (safety filter) and persistent failures
-            try:
-                import fitz as _fitz
-                _doc = _fitz.open(pdf_path)
-                raw_text = _doc[page_idx].get_text().strip()
-                _doc.close()
-                if raw_text and len(raw_text) > 20:
-                    if translate_lang:
-                        # Strategy 1: Translate via litellm (user's configured provider)
-                        try:
-                            system = get_system_prompt(True, translate_lang, translate_from)
-                            translated = process_mega_block(raw_text, system, retries=2)
-                            if translated and len(translated.strip()) > 20:
-                                return page_idx, translated, "fitz+translate"
-                        except Exception:
-                            pass
-
-                        # Strategy 2: Direct Gemini text-only (minimal prompt, no image)
-                        try:
-                            import urllib.request
-                            import json as _json
-                            _url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-                            _prompt = f"Przetłumacz ten tekst na {translate_lang}. Zwróć TYLKO tłumaczenie:\n\n{raw_text}"
-                            _payload = {
-                                "contents": [{"parts": [{"text": _prompt}]}],
-                                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
-                            }
-                            _req = urllib.request.Request(_url, _json.dumps(_payload).encode(), {"Content-Type": "application/json"})
-                            with urllib.request.urlopen(_req, timeout=30) as _r:
-                                _result = _json.loads(_r.read())
-                            _translated = _result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                            if _translated and len(_translated.strip()) > 20:
-                                return page_idx, _translated.strip(), "fitz+gemini_text"
-                        except Exception:
-                            pass
-
-                    # Last resort: return raw text (untranslated but present)
-                    return page_idx, raw_text, "fitz_raw"
-            except Exception:
-                pass
-
-            return page_idx, None, "failed"
-
-        with ThreadPoolExecutor(max_workers=min(workers, len(failed))) as pool:
-            retry_futures = {pool.submit(_retry_page, p): p for p in failed}
-            for f in as_completed(retry_futures):
-                page_idx, text, status = f.result()
-                if text:
-                    results[page_idx] = text
-                    _report(85, f"{'✅' if status == 'recovered' else '⚠️'} Strona {page_idx+1}: {status}")
-                else:
-                    results[page_idx] = f"\n\n[NIEPRZETŁUMACZONE — strona {page_idx+1}]\n\n"
-                    _report(85, f"❌ Strona {page_idx+1}: nie udało się")
+            _report(85, f"  {reason} ({count}x)")
+        if _abort_flag[0]:
+            _report(85, f"⛔ {len(failed)}/{page_count} stron nie powiodło się — błąd klucza API")
+            _report(85, f"💡 Sprawdź klucz API w ustawieniach (⚙️)")
+        else:
+            _report(85, f"⚠️ {len(failed)}/{page_count} stron nie powiodło się")
+        for idx in failed:
+            results[idx] = f"\n\n[BŁĄD — strona {idx+1}]\n\n"
 
     # ── Step 6: Assemble in order ────────────────────────────────────────
     _report(90, "📦 Składanie tekstu…")
