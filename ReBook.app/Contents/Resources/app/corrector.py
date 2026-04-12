@@ -1387,10 +1387,11 @@ def _verify_page_local(text: str, target_lang: str = "") -> bool:
 
 
 
-# ─── Per-Page OCR Engine (v4.0) ───────────────────────────────────────────────
+# ─── Per-Page OCR Engine (v4.1) ───────────────────────────────────────────────
 
 _DEFAULT_OCR_WORKERS = 50
-_GEMMA_OCR_WORKERS = 15  # Gemma 4 has 15 RPM limit
+_GEMMA_OCR_WORKERS = 5   # Low workers + rate limiter = stable 15 RPM
+_GEMMA_RPM = 15           # Google rate limit for Gemma free tier
 _ESCALATION_MODEL = "gemini-3-flash-preview"
 _PAGE_DPI = 200
 
@@ -1835,11 +1836,17 @@ def _gemini_ocr_pages(
     failed = []
     failed_errors = {}  # page_idx → error message
     done_count = [0]
-    _abort_flag = [False]  # early abort on auth errors
+    _abort_flag = [False]  # early abort on auth errors ONLY
     _first_error_msg = [None]  # capture first error for UI
+    _rate_errors = [0]  # count consecutive rate limit errors
 
     import threading
     lock = threading.Lock()
+
+    # Rate limiter: enforce minimum delay between API calls
+    _min_delay = (60.0 / _GEMMA_RPM) if _is_gemma(model) else 0.1
+    _last_call_time = [0.0]
+    _rate_lock = threading.Lock()
 
     def _classify_error(e):
         """Classify error: 'auth', 'safety', 'rate', or 'other'."""
@@ -1857,11 +1864,39 @@ def _gemini_ocr_pages(
     def _process_page(page_idx):
         if _abort_flag[0]:
             return page_idx, "", Exception("aborted")
-        try:
-            text, usage = _call_gemini_page(key, model, page_images[page_idx], prompt)
-            return page_idx, text, None
-        except Exception as e:
-            return page_idx, "", e
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            # Rate limiter: wait if calling too fast
+            with _rate_lock:
+                now = time.time()
+                elapsed = now - _last_call_time[0]
+                if elapsed < _min_delay:
+                    time.sleep(_min_delay - elapsed)
+                _last_call_time[0] = time.time()
+
+            if _abort_flag[0]:
+                return page_idx, "", Exception("aborted")
+
+            try:
+                text, usage = _call_gemini_page(key, model, page_images[page_idx], prompt)
+                with lock:
+                    _rate_errors[0] = 0  # reset on success
+                return page_idx, text, None
+            except Exception as e:
+                err_class, _ = _classify_error(e)
+                if err_class == "auth":
+                    return page_idx, "", e  # don't retry auth errors
+                if err_class in ("rate", "timeout") and attempt < max_retries - 1:
+                    wait = (2 ** attempt) * 5  # 5s, 10s, 20s
+                    with lock:
+                        _rate_errors[0] += 1
+                        if _rate_errors[0] % 5 == 1:
+                            _report(10, f"⏱ Rate limit — czekam {wait}s (próba {attempt+1}/{max_retries})")
+                    time.sleep(wait)
+                    continue
+                return page_idx, "", e
+        return page_idx, "", Exception("max retries exceeded")
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_process_page, p): p for p in page_indices}
@@ -1877,7 +1912,7 @@ def _gemini_ocr_pages(
                     if _first_error_msg[0] is None:
                         _first_error_msg[0] = err_msg
                         _report(10, err_msg)
-                    # Auth/key errors → abort all remaining pages
+                    # ONLY auth/key errors abort pipeline — rate limits use retry
                     if err_class == "auth" and not _abort_flag[0]:
                         _abort_flag[0] = True
                         _report(10, "⛔ Przerwano — napraw klucz API w ustawieniach (⚙️)")
