@@ -1463,13 +1463,49 @@ def _build_glossary(
         pass
     return ""
 
-
 def _build_mega_prompt(
     translate_lang: str = "",
     translate_from: str = "",
     glossary: str = "",
+    model: str = "",
 ) -> str:
-    """Build the mega-prompt for per-page OCR (+optional translation + QC)."""
+    """Build OCR prompt. Uses English for Gemma (better instruction following)."""
+    is_gemma = _is_gemma(model)
+
+    glossary_section = ""
+    if glossary:
+        glossary_section = f"\nTERMINOLOGY GLOSSARY (use these translations):\n{glossary}\n" if is_gemma else f"\nGLOSARIUSZ TERMINÓW (użyj tych tłumaczeń):\n{glossary}\n"
+
+    if is_gemma:
+        # English prompt — Gemma follows English instructions much better
+        if translate_lang:
+            src = f" from {translate_from}" if translate_from else ""
+            return (
+                f"You are an OCR + translation engine. Extract ALL text from this scanned book page{src} and translate it to {translate_lang}.\n\n"
+                f"RULES:\n"
+                f"- Output ONLY the translated text in {translate_lang}. No commentary, no explanations.\n"
+                f"- Keep Markdown formatting: # headings, - lists, > quotes\n"
+                f"- If the page is only an illustration with no text, output exactly: {{{{IMAGE:strona}}}}\n"
+                f"- If illustration has captions/labels, extract and translate them: {{{{IMAGE_TEXT:strona}}}}\\n[translated text]\n"
+                f"- Do NOT leave any text in the original language (except proper names)\n"
+                f"- Use [illegible] for unreadable fragments\n"
+                f"- Do NOT describe the image. Do NOT say 'Input:', 'Output:', 'Here is', etc.\n"
+                f"- Start directly with the extracted/translated text\n"
+                f"{glossary_section}"
+            )
+        else:
+            return (
+                f"You are an OCR engine. Extract ALL text from this scanned book page.\n\n"
+                f"RULES:\n"
+                f"- Output ONLY the extracted text. No commentary, no explanations.\n"
+                f"- Keep Markdown formatting: # headings, - lists, > quotes\n"
+                f"- If the page is only an illustration, output exactly: {{{{IMAGE:strona}}}}\n"
+                f"- Use [illegible] for unreadable fragments\n"
+                f"- Do NOT describe the image. Start directly with the text.\n"
+                f"{glossary_section}"
+            )
+
+    # Polish prompt for Gemini models (works well)
     if translate_lang:
         src = f" z języka {translate_from}" if translate_from else ""
         translate_section = (
@@ -1487,10 +1523,6 @@ def _build_mega_prompt(
     else:
         translate_section = ""
         rules = "- Zwróć WYŁĄCZNIE wyodrębniony tekst ze skanu"
-
-    glossary_section = ""
-    if glossary:
-        glossary_section = f"\nGLOSARIUSZ TERMINÓW (użyj tych tłumaczeń):\n{glossary}\n"
 
     return (
         f"Wykonaj następujące kroki na tym skanie strony książki:\n\n"
@@ -1702,7 +1734,7 @@ def _gemini_ocr_pages(
             _report(5, "⚠️ Glosariusz niedostępny — kontynuuję bez niego")
 
     # ── Step 2: Build prompt ─────────────────────────────────────────────
-    prompt = _build_mega_prompt(translate_lang, translate_from, glossary)
+    prompt = _build_mega_prompt(translate_lang, translate_from, glossary, model=model)
 
     # ── Step 3: Render pages as images ───────────────────────────────────
     _report(6, f"📄 Renderowanie {page_count} stron…")
