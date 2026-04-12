@@ -1587,7 +1587,74 @@ def _call_gemini_page(
     if "candidates" in result:
         parts = result["candidates"][0].get("content", {}).get("parts", [])
         text = "".join(p.get("text", "") for p in parts)
+
+    # Strip Gemma's "thinking aloud" preamble
+    if is_gemma and text:
+        text = _strip_gemma_thinking(text)
+
     return text.strip(), usage
+
+
+def _strip_gemma_thinking(raw: str) -> str:
+    """Remove Gemma's chain-of-thought preamble from OCR output.
+    
+    Gemma 4 always starts with bullet-point analysis like:
+      *   Input: An image containing text...
+      *   Task: Extract and translate...
+      *   Observation: The text is already in Polish...
+    
+    Real content follows after — usually without bullet prefix.
+    """
+    lines = raw.split("\n")
+    meta_keywords = {"input:", "task:", "constraint:", "observation:", "rules:",
+                     "output:", "note:", "header:", "section:", "bullet",
+                     "the prompt", "the user", "the image",
+                     "the source", "the text in the image", "the text is",
+                     "the translation", "since it", "since the", "already in",
+                     "wait,", "let me", "i will", "i should", "let's", "ensure",
+                     "however", "in summary"}
+
+    # Find where the thinking ends and real content begins
+    last_meta_line = -1
+    for i, line in enumerate(lines):
+        stripped = line.strip().lower()
+        # Meta lines: start with * and contain meta keywords
+        if stripped.startswith(("*", "-")) and any(kw in stripped for kw in meta_keywords):
+            last_meta_line = i
+        # Indented continuation of meta analysis
+        elif stripped.startswith(("*", "-")) and last_meta_line >= 0 and i - last_meta_line <= 3:
+            if any(kw in stripped for kw in meta_keywords):
+                last_meta_line = i
+
+    if last_meta_line < 0:
+        return raw  # No thinking detected
+
+    # Skip past the last meta line + any blank lines
+    start = last_meta_line + 1
+    while start < len(lines) and lines[start].strip() == "":
+        start += 1
+
+    if start >= len(lines):
+        return raw  # Safety: don't return empty
+
+    cleaned = "\n".join(lines[start:])
+    # Remove leading indentation (Gemma often indents real content with 4 spaces)
+    import re
+    cleaned = re.sub(r"^    ", "", cleaned, flags=re.MULTILINE)
+
+    # Secondary strip: remove remaining meta-like lines at the beginning
+    clean_lines = cleaned.split("\n")
+    while clean_lines:
+        s = clean_lines[0].strip().lower()
+        if s == "":
+            clean_lines.pop(0)
+        elif s.startswith(("*", "-")) and any(kw in s for kw in meta_keywords):
+            clean_lines.pop(0)
+        else:
+            break
+    cleaned = "\n".join(clean_lines)
+
+    return cleaned if len(cleaned.strip()) > 20 else raw
 
 
 def _extract_pdf_page_image(pdf_path: str, page_num: int) -> bytes:
