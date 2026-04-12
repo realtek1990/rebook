@@ -244,7 +244,10 @@ def correct_markdown(
     done_count = 0
     mode_str = "Tłumaczenie" if use_translate else "Korekcja"
     
-    with ThreadPoolExecutor(max_workers=30) as executor:
+    # Detect Gemma models — lower parallelism due to 15 RPM limit
+    _model_name = (get_config().get("model_name", "") or "").lower()
+    _llm_workers = 8 if "gemma" in _model_name else 30
+    with ThreadPoolExecutor(max_workers=_llm_workers) as executor:
         futures = {}
         for i, mega_group in enumerate(mega_blocks):
             group_text = []
@@ -1387,8 +1390,13 @@ def _verify_page_local(text: str, target_lang: str = "") -> bool:
 # ─── Per-Page OCR Engine (v4.0) ───────────────────────────────────────────────
 
 _DEFAULT_OCR_WORKERS = 50
+_GEMMA_OCR_WORKERS = 10  # Gemma 4 has 15 RPM limit
 _ESCALATION_MODEL = "gemini-3-flash-preview"
 _PAGE_DPI = 200
+
+def _is_gemma(model: str) -> bool:
+    """Check if model is a Gemma model (has stricter rate limits)."""
+    return "gemma" in model.lower()
 
 
 def _build_glossary(
@@ -1662,8 +1670,11 @@ def _gemini_ocr_pages(
         raise RuntimeError("Brak klucza Gemini API dla Cloud OCR.")
 
     model = _GEMINI_OCR_MODEL
-    workers = int((config or {}).get("ocr_workers", _DEFAULT_OCR_WORKERS))
-    workers = max(5, min(workers, 100))
+    default_workers = _GEMMA_OCR_WORKERS if _is_gemma(model) else _DEFAULT_OCR_WORKERS
+    workers = int((config or {}).get("ocr_workers", default_workers))
+    if _is_gemma(model):
+        workers = min(workers, _GEMMA_OCR_WORKERS)  # cap at 10 for Gemma
+    workers = max(2, min(workers, 100))
 
     # Page range
     total_pages = _get_pdf_page_count(pdf_path)
@@ -1673,7 +1684,8 @@ def _gemini_ocr_pages(
     page_indices = list(range(ps - 1, pe))  # 0-indexed
 
     mode = f"OCR + tłumaczenie → {translate_lang}" if translate_lang else "OCR"
-    _report(2, f"Gemini {mode} — {page_count} stron, {workers} workerów…")
+    model_label = "Gemma" if _is_gemma(model) else "Gemini"
+    _report(2, f"{model_label} {mode} — {model}, {page_count} stron, {workers} workerów…")
 
     # ── Step 1: Build glossary (1 quick request) ─────────────────────────
     glossary = ""
