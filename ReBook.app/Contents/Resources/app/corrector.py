@@ -1390,7 +1390,7 @@ def _verify_page_local(text: str, target_lang: str = "") -> bool:
 # ─── Per-Page OCR Engine (v4.0) ───────────────────────────────────────────────
 
 _DEFAULT_OCR_WORKERS = 50
-_GEMMA_OCR_WORKERS = 10  # Gemma 4 has 15 RPM limit
+_GEMMA_OCR_WORKERS = 15  # Gemma 4 has 15 RPM limit
 _ESCALATION_MODEL = "gemini-3-flash-preview"
 _PAGE_DPI = 200
 
