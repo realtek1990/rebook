@@ -247,9 +247,16 @@ def correct_markdown(
     done_count = 0
     mode_str = "Tłumaczenie" if use_translate else "Korekcja"
     
-    # Detect Gemma models — lower parallelism due to 15 RPM limit
+    # NVIDIA NIM: rate-limit kicks in at ~12 concurrent (tested).
+    # Gemma (Google): 15 RPM limit.
     _model_name = (get_config().get("model_name", "") or "").lower()
-    _llm_workers = 8 if "gemma" in _model_name else 30
+    _provider = (get_config().get("llm_provider", "") or "").lower()
+    if _provider == "nvidia":
+        _llm_workers = 12
+    elif "gemma" in _model_name:
+        _llm_workers = 8
+    else:
+        _llm_workers = 30
     with ThreadPoolExecutor(max_workers=_llm_workers) as executor:
         futures = {}
         for i, mega_group in enumerate(mega_blocks):
@@ -723,8 +730,10 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
         progress_callback(0, total_chunks,
             f"🔍 Weryfikacja {total_chunks} segmentów równolegle...")
 
-    # Run ALL chunks in parallel (Gemini Flash: 2000 RPM, so 30 is safe)
-    with ThreadPoolExecutor(max_workers=min(30, total_chunks)) as pool:
+    # Run ALL chunks in parallel — cap to provider limit
+    _prov2 = (get_config().get("llm_provider", "") or "").lower()
+    _verify_workers = 12 if _prov2 == "nvidia" else 30
+    with ThreadPoolExecutor(max_workers=min(_verify_workers, total_chunks)) as pool:
         futures = {
             pool.submit(_verify_one, i, o, t): i
             for i, (o, t) in enumerate(chunks)
