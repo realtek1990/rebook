@@ -26,6 +26,7 @@ CW = W - 2 * PAD
 def _providers():
     return [
     (t("provider_none"), "Brak"),
+    ("NVIDIA NIM", "nvidia"),
     ("Mistral AI", "mistral"),
     ("Kimi / Moonshot", "moonshot"),
     ("Zhipu AI", "zhipu"),
@@ -40,6 +41,13 @@ FORMATS = ["EPUB", "Markdown", "HTML"]
 FORMAT_KEYS = ["epub", "md", "html"]
 
 MODELS = {
+    "nvidia": [
+        "mistralai/mistral-small-4-119b-2603",
+        "qwen/qwen3.5-122b-a10b",
+        "deepseek-ai/deepseek-v3.2",
+        "meta/llama-3.3-70b-instruct",
+        "google/gemma-3-27b-it",
+    ],
     "mistral": ["mistral-large-latest", "mistral-medium", "pixtral-large-latest", "ministral-8b-latest", "ministral-3b-latest", "mistral-small-latest"],
     "moonshot": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
     "zhipu": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],

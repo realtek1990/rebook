@@ -106,6 +106,9 @@ def process_mega_block(text: str, system_prompt: str, retries: int = 3) -> str:
         api_base = "https://open.bigmodel.cn/api/coding/paas/v4/"
     elif provider == "mistral":
         model_name = f"mistral/{model_name}"
+    elif provider == "nvidia":
+        model_name = f"openai/{model_name}"
+        api_base = "https://integrate.api.nvidia.com/v1"
     elif provider and provider != "brak" and "/" not in model_name:
         model_name = f"{provider}/{model_name}"
         
@@ -478,6 +481,9 @@ def _translate_with_sub_chunks(
             api_base = "https://open.bigmodel.cn/api/coding/paas/v4/"
         elif provider == "mistral":
             model_name = f"mistral/{model_name}"
+        elif provider == "nvidia":
+            model_name = f"openai/{model_name}"
+            api_base = "https://integrate.api.nvidia.com/v1"
         elif provider and provider != "brak" and "/" not in model_name:
             model_name = f"{provider}/{model_name}"
         api_key = config.get("api_key", "").strip()
@@ -594,6 +600,9 @@ def verify_translation(
         api_base = "https://open.bigmodel.cn/api/coding/paas/v4/"
     elif provider == "mistral":
         model_name = f"mistral/{model_name}"
+    elif provider == "nvidia":
+        model_name = f"openai/{model_name}"
+        api_base = "https://integrate.api.nvidia.com/v1"
     elif provider and provider != "brak" and "/" not in model_name:
         model_name = f"{provider}/{model_name}"
 
@@ -1343,6 +1352,20 @@ def _verify_page_local(text: str, target_lang: str = "") -> bool:
     stripped = text.strip()
     if not stripped:
         return False
+
+    # Explicitly reject Gemma "thinking aloud" patterns even if the rest is Polish
+    lower_text = stripped.lower()
+    thinking_indicators = [
+        "self-correction", "i will", "i'll", "let me", "the prompt",
+        "formatting check", "final polish", "side tab", "checking the",
+        "final structure", "image tags", "the text is already", "no translation needed"
+    ]
+    if any(ind in lower_text for ind in thinking_indicators):
+        import re
+        patterns = re.findall(r'(?:self-correction|i will|i\'ll|let me|the prompt|formatting check|final polish|side tab|checking the|final structure|image tags)[^.]{0,80}', lower_text)
+        if patterns:
+            return False  # Reject pages with visible thinking artifacts
+
     if len(stripped) < 100:
         return True  # Too short for reliable detection — accept if non-empty
 
@@ -1478,31 +1501,22 @@ def _build_mega_prompt(
         glossary_section = f"\nTERMINOLOGY GLOSSARY (use these translations):\n{glossary}\n" if is_gemma else f"\nGLOSARIUSZ TERMINÓW (użyj tych tłumaczeń):\n{glossary}\n"
 
     if is_gemma:
-        # English prompt — Gemma follows English instructions much better
+        # SHORT single-imperative prompt — Gemma parrots back multi-rule lists verbatim.
+        # System instruction = role. User message = task. No enumerated rules.
         if translate_lang:
             src = f" from {translate_from}" if translate_from else ""
             return (
-                f"You are an OCR + translation engine. Extract ALL text from this scanned book page{src} and translate it to {translate_lang}.\n\n"
-                f"RULES:\n"
-                f"- Output ONLY the translated text in {translate_lang}. No commentary, no explanations.\n"
-                f"- Keep Markdown formatting: # headings, - lists, > quotes\n"
-                f"- If the page is only an illustration with no text, output exactly: {{{{IMAGE:strona}}}}\n"
-                f"- If illustration has captions/labels, extract and translate them: {{{{IMAGE_TEXT:strona}}}}\\n[translated text]\n"
-                f"- Do NOT leave any text in the original language (except proper names)\n"
-                f"- Use [illegible] for unreadable fragments\n"
-                f"- Do NOT describe the image. Do NOT say 'Input:', 'Output:', 'Here is', etc.\n"
-                f"- Start directly with the extracted/translated text\n"
+                f"Translate the scanned book page{src} to {translate_lang}. "
+                f"Output only the translated text with Markdown structure preserved. "
+                f"For illustration-only pages output {{{{IMAGE:strona}}}}. "
+                f"For illustrations with text output {{{{IMAGE_TEXT:strona}}}} followed by translated captions. "
                 f"{glossary_section}"
             )
         else:
             return (
-                f"You are an OCR engine. Extract ALL text from this scanned book page.\n\n"
-                f"RULES:\n"
-                f"- Output ONLY the extracted text. No commentary, no explanations.\n"
-                f"- Keep Markdown formatting: # headings, - lists, > quotes\n"
-                f"- If the page is only an illustration, output exactly: {{{{IMAGE:strona}}}}\n"
-                f"- Use [illegible] for unreadable fragments\n"
-                f"- Do NOT describe the image. Start directly with the text.\n"
+                f"Extract all text from the scanned book page. "
+                f"Output only the raw text with Markdown structure preserved. "
+                f"For illustration-only pages output {{{{IMAGE:strona}}}}. "
                 f"{glossary_section}"
             )
 
@@ -1560,14 +1574,19 @@ def _call_gemini_page(
 
     is_gemma = "gemma" in model.lower()
     if is_gemma:
-        # Gemma: use systemInstruction to prevent prompt echo/"thinking aloud"
+        # Gemma: systemInstruction keeps prompt separate from conversation.
+        # enable_thinking=False — critical for 26B/27B to suppress chain-of-thought output.
         payload = {
             "systemInstruction": {"parts": [{"text": prompt}]},
             "contents": [{"parts": [
-                {"text": "OCR this page."},
+                {"text": "Translate this page."},
                 {"inline_data": {"mime_type": "image/png", "data": image_b64}},
             ]}],
-            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 8192,
+                "enable_thinking": False,  # Suppresses CoT for Gemma 26B/27B
+            },
         }
     else:
         payload = {
@@ -1609,11 +1628,13 @@ def _strip_gemma_thinking(raw: str) -> str:
     lines = raw.split("\n")
     meta_keywords = {"input:", "task:", "constraint:", "observation:", "rules:",
                      "output:", "note:", "header:", "section:", "bullet",
-                     "the prompt", "the user", "the image",
+                     "the prompt", "the user", "the image", "image tags",
                      "the source", "the text in the image", "the text is",
                      "the translation", "since it", "since the", "already in",
                      "wait,", "let me", "i will", "i should", "let's", "ensure",
-                     "however", "in summary"}
+                     "however", "in summary", "self-correction", "final polish",
+                     "formatting check", "side tab", "checking the", "final structure",
+                     "i'll"}
 
     # Find where the thinking ends and real content begins
     last_meta_line = -1

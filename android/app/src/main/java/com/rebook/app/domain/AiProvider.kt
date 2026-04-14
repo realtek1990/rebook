@@ -35,6 +35,14 @@ object AiProvider {
     )
 
     val PROVIDERS = listOf(
+        ProviderInfo("NVIDIA NIM", "nvidia", "https://integrate.api.nvidia.com/v1/",
+            listOf(
+                "mistralai/mistral-small-4-119b-2603",
+                "qwen/qwen3.5-122b-a10b",
+                "deepseek-ai/deepseek-v3.2",
+                "meta/llama-3.3-70b-instruct",
+                "google/gemma-3-27b-it",
+            )),
         ProviderInfo("Google Gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta/openai/",
             listOf("gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro")),
         ProviderInfo("OpenAI", "openai", "https://api.openai.com/v1/",

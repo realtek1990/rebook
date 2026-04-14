@@ -106,6 +106,9 @@ def process_mega_block(text: str, system_prompt: str, retries: int = 3) -> str:
         api_base = "https://open.bigmodel.cn/api/coding/paas/v4/"
     elif provider == "mistral":
         model_name = f"mistral/{model_name}"
+    elif provider == "nvidia":
+        model_name = f"openai/{model_name}"
+        api_base = "https://integrate.api.nvidia.com/v1"
     elif provider and provider != "brak" and "/" not in model_name:
         model_name = f"{provider}/{model_name}"
         
@@ -466,6 +469,9 @@ def _translate_with_sub_chunks(
             api_base = "https://open.bigmodel.cn/api/coding/paas/v4/"
         elif provider == "mistral":
             model_name = f"mistral/{model_name}"
+        elif provider == "nvidia":
+            model_name = f"openai/{model_name}"
+            api_base = "https://integrate.api.nvidia.com/v1"
         elif provider and provider != "brak" and "/" not in model_name:
             model_name = f"{provider}/{model_name}"
         api_key = config.get("api_key", "").strip()
@@ -582,6 +588,9 @@ def verify_translation(
         api_base = "https://open.bigmodel.cn/api/coding/paas/v4/"
     elif provider == "mistral":
         model_name = f"mistral/{model_name}"
+    elif provider == "nvidia":
+        model_name = f"openai/{model_name}"
+        api_base = "https://integrate.api.nvidia.com/v1"
     elif provider and provider != "brak" and "/" not in model_name:
         model_name = f"{provider}/{model_name}"
 
