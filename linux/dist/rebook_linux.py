@@ -247,6 +247,15 @@ class ReBookApp:
             text_color=("gray10", "gray90"),
         )
 
+        # LLM verification (hidden, shown when translate enabled)
+        self._verify_var = ctk.BooleanVar(value=False)
+        self._verify_check = ctk.CTkCheckBox(
+            f, text=t("verify_check") if hasattr(self, '_t') else "🔍 Weryfikacja LLM (dokładna, extra koszt)",
+            variable=self._verify_var,
+            font=ctk.CTkFont(size=11),
+            text_color=("gray10", "gray90"),
+        )
+
 
 
         # Language fields (hidden)
@@ -375,10 +384,13 @@ class ReBookApp:
         if self._translate_var.get():
             self._lang_frame.pack(fill="x", padx=28, pady=4)
             self._translate_img_check.pack(anchor="w", padx=44, pady=2)
+            self._verify_check.pack(anchor="w", padx=44, pady=2)
         else:
             self._lang_frame.pack_forget()
             self._translate_img_check.pack_forget()
+            self._verify_check.pack_forget()
             self._translate_img_var.set(False)
+            self._verify_var.set(False)
 
     # ── Settings ──
 
@@ -523,11 +535,12 @@ class ReBookApp:
         fmt = FORMAT_KEYS[fmt_idx]
         translate = self._translate_var.get()
         translate_images = self._translate_img_var.get() if translate else False
+        verify = self._verify_var.get() if translate else False
         use_llm = self._ai_var.get() or translate
         lang_from = self._lang_from.get() if translate else ""
         lang_to = self._lang_to.get() if translate else "polski"
 
-        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, lang_from, lang_to)
+        args = (str(self._selected_file), fmt, use_llm, translate, translate_images, lang_from, lang_to, 0, 0, verify)
 
         # Page range (PDF only)
         page_start = 0
@@ -542,7 +555,8 @@ class ReBookApp:
         except (ValueError, AttributeError):
             pass
 
-        args = args + (page_start, page_end)
+        # Replace page_start/page_end in args (already 0,0 above), then add actual values
+        args = args[:-2] + (page_start, page_end) + (verify,)
         threading.Thread(target=self._run_conversion, args=args, daemon=True).start()
 
     def _stop_conversion(self):
@@ -551,7 +565,7 @@ class ReBookApp:
         self._stage_label.configure(text="⛔ Zatrzymywanie…")
         self._append_log("⛔ Zatrzymywanie konwersji…")
 
-    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0):
+    def _run_conversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0, verify=False):
         try:
             import converter
 
@@ -566,6 +580,7 @@ class ReBookApp:
                 use_llm=use_llm,
                 use_translate=translate,
                 translate_images=translate_images,
+                verify_translation=verify,
                 lang_from=lang_from,
                 lang_to=lang_to,
                 progress_callback=_progress_with_cancel,

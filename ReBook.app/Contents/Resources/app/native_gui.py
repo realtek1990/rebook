@@ -382,6 +382,15 @@ class AppDelegate(NSObject):
         cv.addSubview_(self._translateImgCheck)
         top -= 24
 
+        self._verifyCheck = NSButton.alloc().initWithFrame_(NSMakeRect(PAD + 20, top - 22, CW - 20, 20))
+        self._verifyCheck.setButtonType_(NSSwitchButton)
+        self._verifyCheck.setTitle_("🔍 Weryfikacja LLM (dokładna, extra koszt)")
+        self._verifyCheck.setFont_(NSFont.systemFontOfSize_(11))
+        self._verifyCheck.setHidden_(True)
+        self._verifyCheck.setState_(NSOffState)
+        cv.addSubview_(self._verifyCheck)
+        top -= 24
+
         self._langView = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 60, CW, 56))
         self._langView.setHidden_(True)
         ll1 = _label(t("lang_from_label"), size=11, color=NSColor.secondaryLabelColor())
@@ -744,8 +753,10 @@ class AppDelegate(NSObject):
         show = self._translateCheck.state() == NSOnState
         self._langView.setHidden_(not show)
         self._translateImgCheck.setHidden_(not show)
+        self._verifyCheck.setHidden_(not show)
         if not show:
             self._translateImgCheck.setState_(NSOffState)
+            self._verifyCheck.setState_(NSOffState)
 
     @objc.IBAction
     def providerChanged_(self, sender):
@@ -835,6 +846,7 @@ class AppDelegate(NSObject):
         fmt = FORMAT_KEYS[fmt_idx]
         translate = bool(self._translateCheck.state())
         translate_images = bool(self._translateImgCheck.state()) if translate else False
+        verify = bool(self._verifyCheck.state()) if translate else False
         use_llm = bool(self._aiCheck.state()) or translate
         lang_from = str(self._langFromField.stringValue()) if translate else ""
         lang_to = str(self._langToField.stringValue()) if translate else "polski"
@@ -852,7 +864,7 @@ class AppDelegate(NSObject):
         except (ValueError, AttributeError):
             pass
 
-        args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start, page_end)
+        args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start, page_end, verify)
         threading.Thread(target=self._runConversion, args=args, daemon=True).start()
 
     @objc.IBAction
@@ -1039,7 +1051,7 @@ class AppDelegate(NSObject):
         self._appendLog("⛔ Zatrzymywanie konwersji…")
 
     @objc.python_method
-    def _runConversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0):
+    def _runConversion(self, path, fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start=0, page_end=0, verify=False):
         import converter
         try:
             # Pass cancel_flag checker as part of progress callback
@@ -1054,7 +1066,7 @@ class AppDelegate(NSObject):
                 use_llm=use_llm,
                 use_translate=translate,
                 translate_images=translate_images,
-                verify_translation=False,
+                verify_translation=verify,
                 lang_from=lang_from,
                 lang_to=lang_to,
                 progress_callback=_progress_with_cancel,
