@@ -2125,6 +2125,73 @@ def _gemini_ocr_pages(
     page_count = pe - ps + 1
     page_indices = list(range(ps - 1, pe))  # 0-indexed
 
+    # ── Step 4: Send all pages in parallel ───────────────────────────────
+    _report(10, f"🚀 Wysyłanie {page_count} stron ({workers} ∥)…")
+    results = {}  # page_idx → text
+    collected_images = {}  # filename → bytes
+    failed = []
+    failed_errors = {}  # page_idx → error message
+    done_count = [0]
+    _abort_flag = [False]  # early abort on auth errors ONLY
+    _first_error_msg = [None]  # capture first error for UI
+    _rate_errors = [0]  # count consecutive rate limit errors
+
+    import threading, hashlib as _hashlib, json as _json
+    lock = threading.Lock()
+    _ckpt_lock = threading.Lock()
+
+    # ── OCR Checkpoint: load already-done pages ──────────────────────────
+    _ocr_ckpt: dict = {}  # {"42": "text..."}
+    _ocr_ckpt_path = Path(pdf_path).with_name(
+        Path(pdf_path).stem + "_ocr.rebook_progress.json")
+    _ocr_ckpt_meta = {
+        "pdf": Path(pdf_path).name,
+        "page_start": ps, "page_end": pe,
+        "model": model, "translate_lang": translate_lang or "",
+    }
+
+    def _ocr_load_checkpoint():
+        try:
+            if not _ocr_ckpt_path.exists():
+                return
+            data = _json.loads(_ocr_ckpt_path.read_text(encoding="utf-8"))
+            if (data.get("pdf") == _ocr_ckpt_meta["pdf"]
+                    and data.get("page_start") == ps
+                    and data.get("page_end") == pe
+                    and data.get("model") == model
+                    and data.get("translate_lang") == (translate_lang or "")):
+                loaded = 0
+                for k, v in data.get("pages", {}).items():
+                    results[int(k)] = v
+                    _ocr_ckpt[k] = v
+                    loaded += 1
+                if loaded:
+                    _report(9, f"⏭️ OCR wznowienie: {loaded}/{page_count} stron z checkpointu")
+            else:
+                _report(9, "⚠️ Checkpoint OCR nie pasuje — zaczynam od nowa")
+        except Exception:
+            pass
+
+    def _ocr_save_page(page_idx: int, text: str):
+        """Atomically save a single OCR page to the checkpoint file."""
+        with _ckpt_lock:
+            _ocr_ckpt[str(page_idx)] = text
+            tmp = _ocr_ckpt_path.with_suffix(".tmp")
+            _json.dump({**_ocr_ckpt_meta, "pages": _ocr_ckpt},
+                       tmp.open("w", encoding="utf-8"),
+                       ensure_ascii=False)
+            tmp.replace(_ocr_ckpt_path)
+
+    def _ocr_mark_done():
+        try:
+            if _ocr_ckpt_path.exists():
+                _ocr_ckpt_path.rename(_ocr_ckpt_path.with_suffix(".done"))
+        except Exception:
+            pass
+
+    _ocr_load_checkpoint()
+    # ─────────────────────────────────────────────────────────────────
+
     mode = f"OCR + tłumaczenie → {translate_lang}" if translate_lang else "OCR"
     model_label = "Gemma" if _is_gemma(model) else "Gemini"
     _report(2, f"{model_label} {mode} — {model}, {page_count} stron, {workers} workerów…")
@@ -2155,20 +2222,6 @@ def _gemini_ocr_pages(
             _report(6 + int(i / page_count * 4), f"📄 Renderowanie strony {i+1}/{page_count}…")
     doc.close()
 
-    # ── Step 4: Send all pages in parallel ───────────────────────────────
-    _report(10, f"🚀 Wysyłanie {page_count} stron ({workers} ∥)…")
-    results = {}  # page_idx → text
-    collected_images = {}  # filename → bytes
-    failed = []
-    failed_errors = {}  # page_idx → error message
-    done_count = [0]
-    _abort_flag = [False]  # early abort on auth errors ONLY
-    _first_error_msg = [None]  # capture first error for UI
-    _rate_errors = [0]  # count consecutive rate limit errors
-
-    import threading
-    lock = threading.Lock()
-
     # Rate limiter: enforce minimum delay between API calls
     _min_delay = (60.0 / _GEMMA_RPM) if _is_gemma(model) else 0.1
     _last_call_time = [0.0]
@@ -2190,6 +2243,12 @@ def _gemini_ocr_pages(
     def _process_page(page_idx):
         if _abort_flag[0]:
             return page_idx, "", Exception("aborted")
+
+        # ✔ Already done in a previous run — skip (zero API cost)
+        if page_idx in results:
+            with lock:
+                done_count[0] += 1
+            return page_idx, results[page_idx], None
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -2255,7 +2314,9 @@ def _gemini_ocr_pages(
                     if img_bytes:
                         fname = f"page_{page_idx+1:04d}.png"
                         collected_images[fname] = img_bytes
-                        results[page_idx] = f"\n![Ilustracja strona {page_idx+1}](images/{fname})\n"
+                        page_text = f"\n![Ilustracja strona {page_idx+1}](images/{fname})\n"
+                        results[page_idx] = page_text
+                        _ocr_save_page(page_idx, page_text)  # ← checkpoint
                     else:
                         results[page_idx] = ""  # empty illustration page
                 elif "{{IMAGE_TEXT:" in stripped:
@@ -2266,9 +2327,12 @@ def _gemini_ocr_pages(
                         collected_images[fname] = img_bytes
                         # Remove the marker, keep the text
                         clean_text = stripped.replace("{{IMAGE_TEXT:strona}}", "").strip()
-                        results[page_idx] = f"\n![Ilustracja strona {page_idx+1}](images/{fname})\n\n{clean_text}"
+                        page_text = f"\n![Ilustracja strona {page_idx+1}](images/{fname})\n\n{clean_text}"
+                        results[page_idx] = page_text
+                        _ocr_save_page(page_idx, page_text)  # ← checkpoint
                     else:
                         results[page_idx] = stripped
+                        _ocr_save_page(page_idx, stripped)  # ← checkpoint
                 else:
                     # Verify translation with langdetect
                     if translate_lang and not _verify_page_local(text, translate_lang):
@@ -2276,6 +2340,7 @@ def _gemini_ocr_pages(
                         failed_errors[page_idx] = "🌐 Weryfikacja języka nie przeszła"
                     else:
                         results[page_idx] = text
+                        _ocr_save_page(page_idx, text)  # ← checkpoint
 
             with lock:
                 done_count[0] += 1
@@ -2308,8 +2373,10 @@ def _gemini_ocr_pages(
     _report(95, "✨ Post-processing…")
     full_text = _postprocess_text(full_text)
 
+    _ocr_mark_done()  # rename .json → .done when OCR is fully complete
     _report(100, f"✅ Gemini {mode} zakończone ({page_count} stron, {len(full_text):,} znaków)")
     return full_text, collected_images
+
 
 
 def ocr_pdf(
