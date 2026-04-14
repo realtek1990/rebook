@@ -236,17 +236,99 @@ def correct_markdown(
     lang_to: str = "polski",
     lang_from: str = "",
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    checkpoint_path: Optional[str] = None,
 ) -> str:
+    """Translate or correct markdown text.
+
+    checkpoint_path: Path to a .rebook_progress.json sidecar file.
+    If the file exists and matches (same lang_from/lang_to/total segments),
+    already-done segments are loaded from disk — zero API calls for those.
+    Each segment is saved atomically as soon as it completes.
+    """
+    import hashlib, threading as _threading
+
     blocks = split_into_blocks(markdown)
     mega_blocks = group_into_mega_blocks(blocks, MEGA_BLOCK_CHARS)
-    
+
     total = len(mega_blocks)
     result_parts = [None] * total
     system_prompt = get_system_prompt(use_translate, lang_to, lang_from)
 
     done_count = 0
-    mode_str = "Tłumaczenie" if use_translate else "Korekcja"
-    
+    mode_str = "Tłumaczenie" if use_translate else "Korekta"
+
+    # ── Checkpoint: load previously completed segments ─────────────────────────────
+    _ckpt_lock = _threading.Lock()  # protects file writes from parallel threads
+    _ckpt: dict = {}  # segments dict: {"0": {"status": "ok", "text": "...", "issues": []}}
+    _ckpt_meta = {
+        "lang_from": lang_from or "auto",
+        "lang_to":   lang_to,
+        "total":     total,
+        "content_hash": hashlib.md5(markdown[:4096].encode(errors="ignore")).hexdigest(),
+    }
+
+    def _load_checkpoint():
+        nonlocal done_count
+        if not checkpoint_path:
+            return
+        try:
+            cp_file = Path(checkpoint_path)
+            if not cp_file.exists():
+                return
+            data = json.loads(cp_file.read_text(encoding="utf-8"))
+            # Validate: same file, same params
+            if (data.get("lang_from") == _ckpt_meta["lang_from"]
+                    and data.get("lang_to") == _ckpt_meta["lang_to"]
+                    and data.get("total") == _ckpt_meta["total"]
+                    and data.get("content_hash") == _ckpt_meta["content_hash"]):
+                segs = data.get("segments", {})
+                loaded = 0
+                for k, v in segs.items():
+                    idx = int(k)
+                    if v.get("status") == "ok" and v.get("text"):
+                        result_parts[idx] = v["text"]
+                        _ckpt[k] = v
+                        loaded += 1
+                done_count = loaded
+                if loaded and progress_callback:
+                    progress_callback(loaded, total,
+                        f"⏭️ Wznowienie: załadowano {loaded}/{total} segmentów z checkpointu")
+            else:
+                if progress_callback:
+                    progress_callback(0, total,
+                        "⚠️ Checkpoint nie pasuje do bieżących parametrów — zaczynam od nowa")
+        except Exception as e:
+            if progress_callback:
+                progress_callback(0, total, f"⚠️ Błąd odczytu checkpointu: {e} — zaczynam od nowa")
+
+    def _save_segment(idx: int, text: str, status: str = "ok", issues: list = None):
+        """Atomically save a single segment to the checkpoint file."""
+        if not checkpoint_path:
+            return
+        entry = {"status": status, "text": text, "issues": issues or []}
+        with _ckpt_lock:
+            _ckpt[str(idx)] = entry
+            cp_file = Path(checkpoint_path)
+            tmp = cp_file.with_suffix(".tmp")
+            data = {**_ckpt_meta, "segments": _ckpt}
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=None),
+                           encoding="utf-8")
+            tmp.replace(cp_file)  # atomic rename — never corrupts on crash
+
+    def _mark_done(checkpoint_path: Optional[str]):
+        """Rename checkpoint to .done when translation is fully complete."""
+        if not checkpoint_path:
+            return
+        try:
+            cp = Path(checkpoint_path)
+            if cp.exists():
+                cp.rename(cp.with_suffix(".done"))
+        except Exception:
+            pass
+
+    _load_checkpoint()
+    # ─────────────────────────────────────────────────────────────────
+
     # NVIDIA NIM: rate-limit kicks in at ~12 concurrent (tested).
     # Gemma (Google): 15 RPM limit.
     _model_name = (get_config().get("model_name", "") or "").lower()
@@ -264,23 +346,34 @@ def correct_markdown(
             for block in mega_group:
                 group_text.append(block["content"])
             combined_text = '\n'.join(group_text)
-            
+
+            # ✔ Already done in a previous run — skip entirely (zero API cost)
+            if result_parts[i] is not None:
+                done_count += 1
+                if progress_callback:
+                    progress_callback(done_count, total,
+                        f"✔️ {mode_str} bloku {done_count}/{total} (z checkpointu)")
+                continue
+
             # Only send text-heavy blocks to AI; images/structural pass through
             text_only = "".join(b["content"] for b in mega_group if b["type"] == "text")
             has_only_images = all(b["type"] in ("image", "structural") for b in mega_group)
-            
+
             if has_only_images or len(text_only.strip()) <= 50:
                 # Pass-through: images, structural elements, tiny text
                 result_parts[i] = combined_text
+                _save_segment(i, combined_text, status="ok")
                 done_count += 1
                 if progress_callback:
-                    progress_callback(done_count, total, f"{mode_str} bloku {done_count}/{total} (Pass-through)...")
+                    progress_callback(done_count, total,
+                        f"{mode_str} bloku {done_count}/{total} (Pass-through)...")
             else:
                 future = executor.submit(process_mega_block, combined_text, system_prompt)
                 futures[future] = (i, combined_text)
                 if progress_callback:
-                    progress_callback(done_count, total, f"Zlecono do API paczkę numer {i+1}/{total}...")
-                
+                    progress_callback(done_count, total,
+                        f"Zlecono do API paczkę numer {i+1}/{total}...")
+
         # Track which segments failed so we can retry them
         failed_indices = []
         _first_error = [None]
@@ -291,6 +384,7 @@ def correct_markdown(
                 # INTEGRITY CHECK: if AI returned empty/garbage, mark as failed
                 if result and len(result.strip()) > 20 and not result.strip().startswith('[BŁĄD'):
                     result_parts[i] = result
+                    _save_segment(i, result, status="ok")  # ← atomic checkpoint save
                 else:
                     failed_indices.append(i)
             except Exception as e:
@@ -303,10 +397,11 @@ def correct_markdown(
                             progress_callback(done_count, total, f"🔑 Błąd klucza API: {err_msg}")
                         else:
                             progress_callback(done_count, total, f"❌ Błąd API: {err_msg}")
-                
+
             done_count += 1
             if progress_callback:
-                progress_callback(done_count, total, f"{mode_str} bloku {done_count}/{total} (~{len(original)//1000}K znaków)...")
+                progress_callback(done_count, total,
+                    f"{mode_str} bloku {done_count}/{total} (~{len(original)//1000}K znaków)...")
 
     # ═══ RETRY FAILED SEGMENTS — WITH AUTO SUB-CHUNKING ═══
     # Strategy: after 3 failures at full size, split the chunk into smaller pieces
@@ -315,8 +410,9 @@ def correct_markdown(
 
     if failed_indices:
         if progress_callback:
-            progress_callback(total, total, f"🔄 Ponawiam {len(failed_indices)} nieudanych segmentów...")
-        
+            progress_callback(total, total,
+                f"🔄 Ponawiam {len(failed_indices)} nieudanych segmentów...")
+
         failure_counts = {i: 0 for i in failed_indices}
 
         for retry_round in range(MAX_RETRY_ROUNDS):
@@ -326,7 +422,8 @@ def correct_markdown(
             if retry_round > 0:
                 wait = min(30, 3 * (2 ** retry_round))
                 if progress_callback:
-                    progress_callback(total, total, f"⏳ Czekam {wait}s przed rundą {retry_round+1}...")
+                    progress_callback(total, total,
+                        f"⏳ Czekam {wait}s przed rundą {retry_round+1}...")
                 time.sleep(wait)
 
             # Adaptive timeout: longer for later retries
@@ -346,6 +443,7 @@ def correct_markdown(
                             original_text, system_prompt, adaptive_timeout)
                         if sub_result and len(sub_result.strip()) > 20:
                             result_parts[i] = sub_result
+                            _save_segment(i, sub_result, status="ok")  # ← checkpoint
                             if progress_callback:
                                 progress_callback(total, total,
                                     f"✅ Segment {i+1} odzyskany przez sub-chunking!")
@@ -360,11 +458,13 @@ def correct_markdown(
                 # Normal retry
                 if progress_callback:
                     progress_callback(total, total,
-                        f"🔄 Próba {retry_round+1}/{MAX_RETRY_ROUNDS} segmentu {i+1} (timeout={adaptive_timeout}s)...")
+                        f"🔄 Próba {retry_round+1}/{MAX_RETRY_ROUNDS} segmentu {i+1} "
+                        f"(timeout={adaptive_timeout}s)...")
                 try:
                     result = process_mega_block(original_text, system_prompt, retries=1)
                     if result and len(result.strip()) > 20:
                         result_parts[i] = result
+                        _save_segment(i, result, status="ok")  # ← checkpoint
                         if progress_callback:
                             progress_callback(total, total,
                                 f"✅ Segment {i+1} odzyskany w próbie {retry_round+1}!")
@@ -373,7 +473,8 @@ def correct_markdown(
                 except Exception as e:
                     still_failing.append(i)
                     if progress_callback:
-                        progress_callback(total, total, f"❌ Segment {i+1} — błąd: {e}")
+                        progress_callback(total, total,
+                            f"❌ Segment {i+1} — błąd: {e}")
             failed_indices = still_failing
 
     # ═══ FINAL INTEGRITY CHECK — HARD FAIL ═══
@@ -419,10 +520,14 @@ def correct_markdown(
             try:
                 result = _translate_with_sub_chunks(original_text, system_prompt, 300)
                 if result and len(result.strip()) > 20:
-                    old_issues = _quality_checks(original_text, result_parts[i] or "", lang_from=lang_from, lang_to=lang_to)
-                    new_issues = _quality_checks(original_text, result, lang_from=lang_from, lang_to=lang_to)
+                    old_issues = _quality_checks(original_text, result_parts[i] or "",
+                                                 lang_from=lang_from, lang_to=lang_to)
+                    new_issues = _quality_checks(original_text, result,
+                                                 lang_from=lang_from, lang_to=lang_to)
                     if len(new_issues) <= len(old_issues):  # replace only if same or fewer issues
                         result_parts[i] = result
+                        _save_segment(i, result, status="ok",  # ← overwrite with fixed version
+                                      issues=[x["detail"] for x in new_issues])
                         if progress_callback:
                             progress_callback(total, total,
                                 f"✅ Segment {i+1}: {len(old_issues)} → {len(new_issues)} problemów")
@@ -431,7 +536,9 @@ def correct_markdown(
                     progress_callback(total, total,
                         f"⚠️ Re-tłumaczenie segmentu {i+1} nie powiodło się: {e}")
 
-    return '\n'.join(p for p in result_parts if p is not None)
+    final = '\n'.join(p for p in result_parts if p is not None)
+    _mark_done(checkpoint_path)  # rename .json → .done when fully complete
+    return final
 
 
 # ── Language indicator tables ───────────────────────────────────────────────────────────────

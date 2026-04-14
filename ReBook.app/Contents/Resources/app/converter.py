@@ -136,6 +136,11 @@ def convert_file(
         if not corrector.is_api_available():
             raise RuntimeError("⚠️ BRAK KLUCZA API!\nWejdź w Ustawienia (⚙️) u góry po prawej, wybierz dostawcę AI i wklej poprawny klucz swojego konta aby uruchomić tryb tłumaczenia/korekty.")
 
+        # Checkpoint sidecar: named after input file + language pair
+        # e.g. MyBook_ang_pol.rebook_progress.json  (next to the input file)
+        _ckpt_suffix = f"_{(lang_from or 'auto')[:3]}_{lang_to[:3]}".lower() if use_translate else ""
+        _ckpt_path   = str(src.with_name(src.stem + _ckpt_suffix + ".rebook_progress.json"))
+
         def on_llm(cur, tot, msg):
             pct = int(cur / tot * 100) if tot else 0
             report("correction", pct, f"{label} ({cur}/{tot})")
@@ -146,8 +151,10 @@ def convert_file(
             lang_to=lang_to,
             lang_from=lang_from,
             progress_callback=on_llm,
+            checkpoint_path=_ckpt_path,
         )
         report("correction", 100, f"{label} zakończona")
+
     elif ocr_already_translated:
         report("correction", 100, "✅ Tłumaczenie wykonane podczas OCR (oszczędność ~50% tokenów)")
 
@@ -464,12 +471,17 @@ def translate_epub(
         pct = int(cur / tot * 100) if tot else 0
         report("correction", pct, f"Tłumaczenie ({cur}/{tot})")
 
+    # Checkpoint sidecar for translate_epub
+    _ckpt_suffix = f"_{(lang_from or 'auto')[:3]}_{lang_to[:3]}".lower()
+    _ckpt_path   = str(src.with_name(src.stem + _ckpt_suffix + ".rebook_progress.json"))
+
     md_text = corrector.correct_markdown(
         md_text,
         use_translate=True,
         lang_to=lang_to,
         lang_from=lang_from,
         progress_callback=on_llm,
+        checkpoint_path=_ckpt_path,
     )
     md_text = corrector._deduplicate_markdown(md_text)
     report("correction", 100, "Tłumaczenie zakończone")
