@@ -247,7 +247,17 @@ def correct_markdown(
     done_count = 0
     mode_str = "Tłumaczenie" if use_translate else "Korekcja"
     
-    with ThreadPoolExecutor(max_workers=30) as executor:
+    # NVIDIA NIM: rate-limit kicks in at ~12 concurrent (tested).
+    # Gemma (Google): 15 RPM limit.
+    _model_name = (get_config().get("model_name", "") or "").lower()
+    _provider = (get_config().get("llm_provider", "") or "").lower()
+    if _provider == "nvidia":
+        _llm_workers = 12
+    elif "gemma" in _model_name:
+        _llm_workers = 8
+    else:
+        _llm_workers = 30
+    with ThreadPoolExecutor(max_workers=_llm_workers) as executor:
         futures = {}
         for i, mega_group in enumerate(mega_blocks):
             group_text = []
@@ -273,6 +283,7 @@ def correct_markdown(
                 
         # Track which segments failed so we can retry them
         failed_indices = []
+        _first_error = [None]
         for future in as_completed(futures):
             i, original = futures[future]
             try:
@@ -284,6 +295,14 @@ def correct_markdown(
                     failed_indices.append(i)
             except Exception as e:
                 failed_indices.append(i)
+                if _first_error[0] is None:
+                    _first_error[0] = str(e)
+                    if progress_callback:
+                        err_msg = str(e)[:150]
+                        if any(k in err_msg.lower() for k in ("401", "403", "invalid", "api_key", "unauthorized")):
+                            progress_callback(done_count, total, f"🔑 Błąd klucza API: {err_msg}")
+                        else:
+                            progress_callback(done_count, total, f"❌ Błąd API: {err_msg}")
                 
             done_count += 1
             if progress_callback:
@@ -370,43 +389,43 @@ def correct_markdown(
         )
 
     # ═══ POST-TRANSLATION QUALITY GATE ═══
-    # Check each chunk: if >30% lines look like source language, re-translate
-    # SKIP this gate when translating TO English — the detector is English-hardcoded
-    # and would flag correct English output as "untranslated source"
-    _target_is_english = lang_to.lower().strip() in (
-        "angielski", "english", "eng", "anglais", "englisch", "inglés",
-        "inglese", "английский", "англійська", "英语", "英語",
-    )
-    if use_translate and not _target_is_english:
+    # Multi-check: source language leak, length, duplicates, numbers, chars, markdown
+    # SKIP when translating TO the source language (detector would false-positive)
+    _target_same_as_source = _same_lang(lang_to, lang_from)
+    if use_translate and not _target_same_as_source:
         if progress_callback:
             progress_callback(total, total, "🔬 Kontrola jakości tłumaczenia...")
-        
-        retranslate_indices = []
+
+        retranslate_indices = []  # (i, issues_summary_str)
         for i, part in enumerate(result_parts):
             if part is None:
                 continue
-            eng_ratio = _source_language_ratio(part)
-            if eng_ratio > 0.30:
-                retranslate_indices.append((i, eng_ratio))
-        
+            original_text = '\n'.join(b["content"] for b in mega_blocks[i])
+            issues = _quality_checks(original_text, part, lang_from=lang_from, lang_to=lang_to)
+            errors  = [x for x in issues if x["severity"] == "error"]
+            if errors:
+                summary = " | ".join(x["detail"] for x in errors)
+                retranslate_indices.append((i, summary))
+
         if retranslate_indices and progress_callback:
             progress_callback(total, total,
-                f"⚠️ {len(retranslate_indices)} segmentów ma >30% tekstu źródłowego — ponawiam tłumaczenie...")
+                f"⚠️ {len(retranslate_indices)} segmentów z błędami jakości — powtarzam...")
 
-        for i, ratio in retranslate_indices:
+        for i, summary in retranslate_indices:
             original_text = '\n'.join(b["content"] for b in mega_blocks[i])
             if progress_callback:
                 progress_callback(total, total,
-                    f"🔄 Re-tłumaczenie segmentu {i+1} ({ratio:.0%} źródłowego)...")
+                    f"🔄 Re-tłumaczenie segmentu {i+1}: {summary}")
             try:
                 result = _translate_with_sub_chunks(original_text, system_prompt, 300)
                 if result and len(result.strip()) > 20:
-                    new_ratio = _source_language_ratio(result)
-                    if new_ratio < ratio:  # only replace if actually better
+                    old_issues = _quality_checks(original_text, result_parts[i] or "", lang_from=lang_from, lang_to=lang_to)
+                    new_issues = _quality_checks(original_text, result, lang_from=lang_from, lang_to=lang_to)
+                    if len(new_issues) <= len(old_issues):  # replace only if same or fewer issues
                         result_parts[i] = result
                         if progress_callback:
                             progress_callback(total, total,
-                                f"✅ Segment {i+1}: {ratio:.0%} → {new_ratio:.0%} źródłowego")
+                                f"✅ Segment {i+1}: {len(old_issues)} → {len(new_issues)} problemów")
             except Exception as e:
                 if progress_callback:
                     progress_callback(total, total,
@@ -415,19 +434,208 @@ def correct_markdown(
     return '\n'.join(p for p in result_parts if p is not None)
 
 
-def _source_language_ratio(text: str) -> float:
-    """Estimate what fraction of lines appear to be in English (source language)."""
+# ── Language indicator tables ───────────────────────────────────────────────────────────────
+
+# Stopwords per language — if these appear heavily in translated text, it’s leaking
+_LANG_INDICATORS: dict = {
+    # English
+    "angielski": [' the ', ' and ', ' for ', ' that ', ' with ', ' from ', ' this ', ' have ',
+                  ' are ', ' was ', ' were ', ' been ', ' will ', ' can ', ' also '],
+    "english":   [' the ', ' and ', ' for ', ' that ', ' with ', ' from ', ' this ', ' have ',
+                  ' are ', ' was ', ' were ', ' been ', ' will ', ' can ', ' also '],
+    # German
+    "niemiecki": [' der ', ' die ', ' das ', ' und ', ' ist ', ' mit ', ' von ', ' für ', ' auf ', ' nicht '],
+    "german":    [' der ', ' die ', ' das ', ' und ', ' ist ', ' mit ', ' von ', ' für ', ' auf ', ' nicht '],
+    "deutsch":   [' der ', ' die ', ' das ', ' und ', ' ist ', ' mit ', ' von ', ' für ', ' auf ', ' nicht '],
+    # French
+    "francuski": [' les ', ' des ', ' une ', ' est ', ' que ', ' dans ', ' sur ', ' pour ', ' avec ', ' pas '],
+    "french":    [' les ', ' des ', ' une ', ' est ', ' que ', ' dans ', ' sur ', ' pour ', ' avec ', ' pas '],
+    "francais":  [' les ', ' des ', ' une ', ' est ', ' que ', ' dans ', ' sur ', ' pour ', ' avec '],
+    # Spanish
+    "hiszpanski": [' los ', ' las ', ' una ', ' que ', ' con ', ' por ', ' para ', ' del ', ' más '],
+    "spanish":    [' los ', ' las ', ' una ', ' que ', ' con ', ' por ', ' para ', ' del ', ' no '],
+    "espanol":    [' los ', ' las ', ' una ', ' que ', ' con ', ' por ', ' para ', ' del '],
+    # Italian
+    "wloski":   [' del ', ' della ', ' dei ', ' che ', ' non ', ' con ', ' per ', ' questo '],
+    "italian":  [' del ', ' della ', ' dei ', ' che ', ' non ', ' con ', ' per ', ' questo '],
+    "italiano": [' del ', ' della ', ' dei ', ' che ', ' non ', ' con ', ' per ', ' questo '],
+    # Portuguese
+    "portugalski": [' dos ', ' das ', ' uma ', ' que ', ' com ', ' por ', ' para ', ' são '],
+    "portuguese":  [' dos ', ' das ', ' uma ', ' que ', ' com ', ' por ', ' para ', ' são '],
+    # Russian
+    "rosyjski": ['и ', 'в ', 'на ', 'с ', 'по ', 'за ', 'не ', 'из ', 'для ', 'что '],
+    "russian":  ['и ', 'в ', 'на ', 'с ', 'по ', 'за ', 'не ', 'из ', 'для ', 'что '],
+    # Ukrainian
+    "ukrainski": ['і ', 'в ', 'на ', 'з ', 'по ', 'за ', 'не ', 'із ', 'для ', 'що '],
+    "ukrainian": ['і ', 'в ', 'на ', 'з ', 'по ', 'за ', 'не ', 'із ', 'для ', 'що '],
+    # Polish (target for most users — useful when translating FROM Polish)
+    "polski":  [' i ', ' w ', ' na ', ' się ', ' jest ', ' dla ', ' nie ', ' do ', ' że ', ' jak '],
+    "polish":  [' i ', ' w ', ' na ', ' się ', ' jest ', ' dla ', ' nie ', ' do ', ' że ', ' jak '],
+    # Dutch
+    "holenderski": [' de ', ' het ', ' een ', ' van ', ' in ', ' is ', ' dat ', ' met ', ' zijn '],
+    "dutch":       [' de ', ' het ', ' een ', ' van ', ' in ', ' is ', ' dat ', ' met ', ' zijn '],
+    # Swedish
+    "szwedzki": [' och ', ' att ', ' det ', ' som ', ' är ', ' för ', ' med ', ' den '],
+    "swedish":  [' och ', ' att ', ' det ', ' som ', ' är ', ' för ', ' med ', ' den '],
+    # Czech
+    "czeski": [' a ', ' v ', ' na ', ' je ', ' se ', ' pro ', ' jak ', ' nebo '],
+    "czech":  [' a ', ' v ', ' na ', ' je ', ' se ', ' pro ', ' jak ', ' nebo '],
+    # Turkish
+    "turecki": [' ve ', ' bir ', ' bu ', ' da ', ' de ', ' ile ', ' için '],
+    "turkish": [' ve ', ' bir ', ' bu ', ' da ', ' de ', ' ile ', ' için '],
+    # Japanese (character-level)
+    "japonski": ['の', 'は', 'が', 'に', 'を', 'で', 'と', 'も', 'た'],
+    "japanese": ['の', 'は', 'が', 'に', 'を', 'で', 'と', 'も', 'た'],
+    # Chinese
+    "chinski": ['的', '是', '在', '有', '不', '这', '也', '了'],
+    "chinese": ['的', '是', '在', '有', '不', '这', '也', '了'],
+}
+
+# Canonical language code for Cyrillic check
+_CYRILLIC_LANGS = {"rosyjski", "russian", "ukrainski", "ukrainian",
+                   "болгарский", "bulgarski", "bulgarian",
+                   "serbski", "serbian", "српски"}
+
+
+def _same_lang(a: str, b: str) -> bool:
+    """True if a and b refer to the same language (loose match)."""
+    norm = lambda s: s.lower().strip().replace('ł', 'l').replace('ó', 'o').replace('ń', 'n')
+    return norm(a) == norm(b) or (norm(a) in norm(b)) or (norm(b) in norm(a))
+
+
+def _source_language_ratio(text: str, lang: str = "angielski") -> float:
+    """Estimate what fraction of lines appear to be in `lang` (the source language).
+
+    Uses the _LANG_INDICATORS table so it works for any source language,
+    not just English.
+    """
     lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 20]
     if not lines:
         return 0.0
-    english_indicators = [' the ', ' and ', ' for ', ' that ', ' with ', ' from ',
-                          ' this ', ' have ', ' are ', ' was ', ' were ', ' been ']
-    eng_count = 0
+    indicators = _LANG_INDICATORS.get(lang.lower().strip(),
+                                      _LANG_INDICATORS["angielski"])  # fallback to English
+    # For Latin-script languages use word matching; for CJK use char presence
+    cjk_langs = {"japanese", "japonski", "chinese", "chinski"}
+    is_cjk = lang.lower().strip() in cjk_langs
+
+    match_count = 0
     for line in lines:
-        ascii_ratio = sum(1 for c in line if ord(c) < 128) / len(line)
-        if ascii_ratio > 0.85 and any(w in line.lower() for w in english_indicators):
-            eng_count += 1
-    return eng_count / len(lines)
+        ll = line.lower()
+        if is_cjk:
+            if any(ch in ll for ch in indicators):
+                match_count += 1
+        else:
+            ascii_ratio = sum(1 for c in line if ord(c) < 128) / max(len(line), 1)
+            if ascii_ratio > 0.70 and any(w in ll for w in indicators):
+                match_count += 1
+    return match_count / len(lines)
+
+
+def _quality_checks(
+    original: str,
+    translated: str,
+    lang_from: str = "angielski",
+    lang_to: str = "polski",
+) -> list:
+    """Run a battery of zero-cost (no-LLM) quality checks on a translated segment.
+
+    Returns a list of issue dicts: {"type": str, "severity": "error"|"warn", "detail": str}
+
+    Checks:
+    1. Source-language leakage     — >30% lines still in source lang
+    2. Empty / minimal output      — translation is near-empty
+    3. Length ratio                — translation 3x shorter or longer than original
+    4. Duplicate paragraphs        — LLM repeated itself
+    5. Number consistency          — numbers from original missing in translation
+    6. Foreign char injection      — Cyrillic in non-Cyrillic target
+    7. Code block preservation     — ``` blocks disappeared
+    8. Markdown header integrity   — # header count changed drastically
+    9. Sentence count ratio        — too few or too many sentences vs original
+    """
+    import re
+    issues = []
+
+    # 1. Source-language leakage
+    src_ratio = _source_language_ratio(translated, lang=lang_from)
+    if src_ratio > 0.30:
+        issues.append({"type": "source_lang_leak", "severity": "error",
+                       "detail": f"{src_ratio:.0%} tekstu źródłowego ({lang_from}) w tłumaczeniu"})
+    elif src_ratio > 0.15:
+        issues.append({"type": "source_lang_leak", "severity": "warn",
+                       "detail": f"{src_ratio:.0%} tekstu źródłowego ({lang_from}) w tłumaczeniu"})
+
+    # 2. Empty / minimal output
+    if len(translated.strip()) < 20 and len(original.strip()) > 100:
+        issues.append({"type": "empty_output", "severity": "error",
+                       "detail": "Tłumaczenie puste lub minimalne"})
+        return issues  # stop early, nothing more to check
+
+    # 3. Length ratio
+    orig_words  = max(len(original.split()), 1)
+    trans_words = len(translated.split())
+    if orig_words > 20:
+        ratio = trans_words / orig_words
+        if ratio < 0.30:
+            issues.append({"type": "too_short", "severity": "error",
+                           "detail": f"Tłumaczenie {ratio:.0%} długości oryginału (za krótkie)"})
+        elif ratio > 3.5:
+            issues.append({"type": "too_long", "severity": "error",
+                           "detail": f"Tłumaczenie {ratio:.0%} długości oryginału (powtórzenia?)"})
+        elif ratio < 0.50 or ratio > 2.5:
+            issues.append({"type": "length_ratio", "severity": "warn",
+                           "detail": f"Tłumaczenie {ratio:.0%} długości oryginału"})
+
+    # 4. Duplicate paragraph detection
+    paras = [p.strip() for p in re.split(r'\n{2,}', translated) if len(p.strip()) > 50]
+    seen: set = set()
+    for p in paras:
+        if p in seen:
+            issues.append({"type": "duplicate_content", "severity": "error",
+                           "detail": "Zduplikowany akapit wykryty (LLM powtórzył treść)"})
+            break
+        seen.add(p)
+
+    # 5. Number consistency (2+ digit numbers)
+    orig_nums  = set(re.findall(r'\b\d{2,}\b', original))
+    trans_nums = set(re.findall(r'\b\d{2,}\b', translated))
+    if orig_nums:
+        missing = orig_nums - trans_nums
+        missing_ratio = len(missing) / len(orig_nums)
+        if missing_ratio > 0.60 and len(missing) > 3:
+            issues.append({"type": "missing_numbers", "severity": "warn",
+                           "detail": f"Brakuje {len(missing)}/{len(orig_nums)} liczb z oryginału"})
+
+    # 6. Foreign character injection
+    if lang_to.lower().strip() not in _CYRILLIC_LANGS:
+        cyrillic_count = sum(1 for c in translated if '\u0400' <= c <= '\u04ff')
+        if cyrillic_count > 10:
+            issues.append({"type": "foreign_chars", "severity": "error",
+                           "detail": f"Cyrylica w tłumaczeniu ({cyrillic_count} znaków) — halucynacja"})
+
+    # 7. Code block preservation
+    orig_code  = len(re.findall(r'```[\s\S]+?```', original))
+    trans_code = len(re.findall(r'```[\s\S]+?```', translated))
+    if orig_code > 0 and trans_code < orig_code:
+        issues.append({"type": "missing_code_blocks", "severity": "warn",
+                       "detail": f"Brakuje {orig_code - trans_code}/{orig_code} bloków kodu"})
+
+    # 8. Markdown header integrity
+    orig_h  = len(re.findall(r'^#{1,6} ', original,    re.MULTILINE))
+    trans_h = len(re.findall(r'^#{1,6} ', translated,  re.MULTILINE))
+    if orig_h > 2 and trans_h < orig_h * 0.5:
+        issues.append({"type": "broken_headers", "severity": "warn",
+                       "detail": f"Nagłówki: oryginał {orig_h}, tłumaczenie {trans_h}"})
+
+    # 9. Sentence count ratio
+    orig_sent  = len(re.findall(r'[.!?]+', original))
+    trans_sent = len(re.findall(r'[.!?]+', translated))
+    if orig_sent > 5:
+        sent_ratio = trans_sent / max(orig_sent, 1)
+        if sent_ratio < 0.30 or sent_ratio > 3.0:
+            issues.append({"type": "sentence_count", "severity": "warn",
+                           "detail": f"Zdania: oryginał {orig_sent}, tłumaczenie {trans_sent}"})
+
+    return issues
 
 
 def _translate_with_sub_chunks(
@@ -711,8 +919,10 @@ Przeanalizuj i zwróć POPRAWIONĄ wersję tłumaczenia (sekcja TŁUMACZENIE). P
         progress_callback(0, total_chunks,
             f"🔍 Weryfikacja {total_chunks} segmentów równolegle...")
 
-    # Run ALL chunks in parallel (Gemini Flash: 2000 RPM, so 30 is safe)
-    with ThreadPoolExecutor(max_workers=min(30, total_chunks)) as pool:
+    # Run ALL chunks in parallel — cap to provider limit
+    _prov2 = (get_config().get("llm_provider", "") or "").lower()
+    _verify_workers = 12 if _prov2 == "nvidia" else 30
+    with ThreadPoolExecutor(max_workers=min(_verify_workers, total_chunks)) as pool:
         futures = {
             pool.submit(_verify_one, i, o, t): i
             for i, (o, t) in enumerate(chunks)
@@ -1210,7 +1420,7 @@ def _gemini_ocr(
         mode_label = f"OCR + tłumaczenie → {translate_lang}"
     else:
         configured_model = c["model"]
-        model = (configured_model if configured_model.startswith("gemini")
+        model = (configured_model if configured_model.startswith(("gemini", "gemma"))
                  else _GEMINI_OCR_MODEL)
         prompt = _OCR_PROMPT
         mode_label = "OCR"
@@ -1340,6 +1550,20 @@ def _verify_page_local(text: str, target_lang: str = "") -> bool:
     stripped = text.strip()
     if not stripped:
         return False
+
+    # Explicitly reject Gemma "thinking aloud" patterns even if the rest is Polish
+    lower_text = stripped.lower()
+    thinking_indicators = [
+        "self-correction", "i will", "i'll", "let me", "the prompt",
+        "formatting check", "final polish", "side tab", "checking the",
+        "final structure", "image tags", "the text is already", "no translation needed"
+    ]
+    if any(ind in lower_text for ind in thinking_indicators):
+        import re
+        patterns = re.findall(r'(?:self-correction|i will|i\'ll|let me|the prompt|formatting check|final polish|side tab|checking the|final structure|image tags)[^.]{0,80}', lower_text)
+        if patterns:
+            return False  # Reject pages with visible thinking artifacts
+
     if len(stripped) < 100:
         return True  # Too short for reliable detection — accept if non-empty
 
@@ -1384,11 +1608,17 @@ def _verify_page_local(text: str, target_lang: str = "") -> bool:
 
 
 
-# ─── Per-Page OCR Engine (v4.0) ───────────────────────────────────────────────
+# ─── Per-Page OCR Engine (v4.1) ───────────────────────────────────────────────
 
 _DEFAULT_OCR_WORKERS = 50
+_GEMMA_OCR_WORKERS = 5   # Low workers + rate limiter = stable 15 RPM
+_GEMMA_RPM = 15           # Google rate limit for Gemma free tier
 _ESCALATION_MODEL = "gemini-3-flash-preview"
 _PAGE_DPI = 200
+
+def _is_gemma(model: str) -> bool:
+    """Check if model is a Gemma model (has stricter rate limits)."""
+    return "gemma" in model.lower()
 
 
 def _build_glossary(
@@ -1397,6 +1627,7 @@ def _build_glossary(
     lang_to: str,
     lang_from: str = "",
     sample_pages: list[int] = None,
+    model: str = "",
 ) -> str:
     """Build a terminology glossary from sample pages of the PDF.
     Returns a formatted glossary string to include in prompts.
@@ -1437,7 +1668,8 @@ def _build_glossary(
     for img in images_b64:
         parts.append({"inline_data": {"mime_type": "image/png", "data": img}})
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{_GEMINI_OCR_MODEL}:generateContent?key={api_key}"
+    _glossary_model = model or _GEMINI_OCR_MODEL
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{_glossary_model}:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": parts}],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048},
@@ -1453,13 +1685,40 @@ def _build_glossary(
         pass
     return ""
 
-
 def _build_mega_prompt(
     translate_lang: str = "",
     translate_from: str = "",
     glossary: str = "",
+    model: str = "",
 ) -> str:
-    """Build the mega-prompt for per-page OCR (+optional translation + QC)."""
+    """Build OCR prompt. Uses English for Gemma (better instruction following)."""
+    is_gemma = _is_gemma(model)
+
+    glossary_section = ""
+    if glossary:
+        glossary_section = f"\nTERMINOLOGY GLOSSARY (use these translations):\n{glossary}\n" if is_gemma else f"\nGLOSARIUSZ TERMINÓW (użyj tych tłumaczeń):\n{glossary}\n"
+
+    if is_gemma:
+        # SHORT single-imperative prompt — Gemma parrots back multi-rule lists verbatim.
+        # System instruction = role. User message = task. No enumerated rules.
+        if translate_lang:
+            src = f" from {translate_from}" if translate_from else ""
+            return (
+                f"Translate the scanned book page{src} to {translate_lang}. "
+                f"Output only the translated text with Markdown structure preserved. "
+                f"For illustration-only pages output {{{{IMAGE:strona}}}}. "
+                f"For illustrations with text output {{{{IMAGE_TEXT:strona}}}} followed by translated captions. "
+                f"{glossary_section}"
+            )
+        else:
+            return (
+                f"Extract all text from the scanned book page. "
+                f"Output only the raw text with Markdown structure preserved. "
+                f"For illustration-only pages output {{{{IMAGE:strona}}}}. "
+                f"{glossary_section}"
+            )
+
+    # Polish prompt for Gemini models (works well)
     if translate_lang:
         src = f" z języka {translate_from}" if translate_from else ""
         translate_section = (
@@ -1477,10 +1736,6 @@ def _build_mega_prompt(
     else:
         translate_section = ""
         rules = "- Zwróć WYŁĄCZNIE wyodrębniony tekst ze skanu"
-
-    glossary_section = ""
-    if glossary:
-        glossary_section = f"\nGLOSARIUSZ TERMINÓW (użyj tych tłumaczeń):\n{glossary}\n"
 
     return (
         f"Wykonaj następujące kroki na tym skanie strony książki:\n\n"
@@ -1504,7 +1759,7 @@ def _call_gemini_page(
     model: str,
     image_b64: str,
     prompt: str,
-    timeout: int = 60,
+    timeout: int = 120,
 ) -> tuple[str, dict]:
     """Send a single page image to Gemini for OCR.
     Returns (text, usage_metadata).
@@ -1514,13 +1769,31 @@ def _call_gemini_page(
     import json as _json
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    payload = {
-        "contents": [{"parts": [
-            {"text": prompt},
-            {"inline_data": {"mime_type": "image/png", "data": image_b64}},
-        ]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
-    }
+
+    is_gemma = "gemma" in model.lower()
+    if is_gemma:
+        # Gemma: systemInstruction keeps prompt separate from conversation.
+        # enable_thinking=False — critical for 26B/27B to suppress chain-of-thought output.
+        payload = {
+            "systemInstruction": {"parts": [{"text": prompt}]},
+            "contents": [{"parts": [
+                {"text": "Translate this page."},
+                {"inline_data": {"mime_type": "image/png", "data": image_b64}},
+            ]}],
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 8192,
+                "enable_thinking": False,  # Suppresses CoT for Gemma 26B/27B
+            },
+        }
+    else:
+        payload = {
+            "contents": [{"parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": "image/png", "data": image_b64}},
+            ]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+        }
     data = _json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
 
@@ -1532,7 +1805,76 @@ def _call_gemini_page(
     if "candidates" in result:
         parts = result["candidates"][0].get("content", {}).get("parts", [])
         text = "".join(p.get("text", "") for p in parts)
+
+    # Strip Gemma's "thinking aloud" preamble
+    if is_gemma and text:
+        text = _strip_gemma_thinking(text)
+
     return text.strip(), usage
+
+
+def _strip_gemma_thinking(raw: str) -> str:
+    """Remove Gemma's chain-of-thought preamble from OCR output.
+    
+    Gemma 4 always starts with bullet-point analysis like:
+      *   Input: An image containing text...
+      *   Task: Extract and translate...
+      *   Observation: The text is already in Polish...
+    
+    Real content follows after — usually without bullet prefix.
+    """
+    lines = raw.split("\n")
+    meta_keywords = {"input:", "task:", "constraint:", "observation:", "rules:",
+                     "output:", "note:", "header:", "section:", "bullet",
+                     "the prompt", "the user", "the image", "image tags",
+                     "the source", "the text in the image", "the text is",
+                     "the translation", "since it", "since the", "already in",
+                     "wait,", "let me", "i will", "i should", "let's", "ensure",
+                     "however", "in summary", "self-correction", "final polish",
+                     "formatting check", "side tab", "checking the", "final structure",
+                     "i'll"}
+
+    # Find where the thinking ends and real content begins
+    last_meta_line = -1
+    for i, line in enumerate(lines):
+        stripped = line.strip().lower()
+        # Meta lines: start with * and contain meta keywords
+        if stripped.startswith(("*", "-")) and any(kw in stripped for kw in meta_keywords):
+            last_meta_line = i
+        # Indented continuation of meta analysis
+        elif stripped.startswith(("*", "-")) and last_meta_line >= 0 and i - last_meta_line <= 3:
+            if any(kw in stripped for kw in meta_keywords):
+                last_meta_line = i
+
+    if last_meta_line < 0:
+        return raw  # No thinking detected
+
+    # Skip past the last meta line + any blank lines
+    start = last_meta_line + 1
+    while start < len(lines) and lines[start].strip() == "":
+        start += 1
+
+    if start >= len(lines):
+        return raw  # Safety: don't return empty
+
+    cleaned = "\n".join(lines[start:])
+    # Remove leading indentation (Gemma often indents real content with 4 spaces)
+    import re
+    cleaned = re.sub(r"^    ", "", cleaned, flags=re.MULTILINE)
+
+    # Secondary strip: remove remaining meta-like lines at the beginning
+    clean_lines = cleaned.split("\n")
+    while clean_lines:
+        s = clean_lines[0].strip().lower()
+        if s == "":
+            clean_lines.pop(0)
+        elif s.startswith(("*", "-")) and any(kw in s for kw in meta_keywords):
+            clean_lines.pop(0)
+        else:
+            break
+    cleaned = "\n".join(clean_lines)
+
+    return cleaned if len(cleaned.strip()) > 20 else raw
 
 
 def _extract_pdf_page_image(pdf_path: str, page_num: int) -> bytes:
@@ -1661,9 +2003,13 @@ def _gemini_ocr_pages(
     if not key:
         raise RuntimeError("Brak klucza Gemini API dla Cloud OCR.")
 
-    model = _GEMINI_OCR_MODEL
-    workers = int((config or {}).get("ocr_workers", _DEFAULT_OCR_WORKERS))
-    workers = max(5, min(workers, 100))
+    # Use user-selected model from config, fallback to default
+    model = (config or {}).get("model_name", "").strip() or _GEMINI_OCR_MODEL
+    default_workers = _GEMMA_OCR_WORKERS if _is_gemma(model) else _DEFAULT_OCR_WORKERS
+    workers = int((config or {}).get("ocr_workers", default_workers))
+    if _is_gemma(model):
+        workers = min(workers, _GEMMA_OCR_WORKERS)  # cap at 10 for Gemma
+    workers = max(2, min(workers, 100))
 
     # Page range
     total_pages = _get_pdf_page_count(pdf_path)
@@ -1673,21 +2019,22 @@ def _gemini_ocr_pages(
     page_indices = list(range(ps - 1, pe))  # 0-indexed
 
     mode = f"OCR + tłumaczenie → {translate_lang}" if translate_lang else "OCR"
-    _report(2, f"Gemini {mode} — {page_count} stron, {workers} workerów…")
+    model_label = "Gemma" if _is_gemma(model) else "Gemini"
+    _report(2, f"{model_label} {mode} — {model}, {page_count} stron, {workers} workerów…")
 
     # ── Step 1: Build glossary (1 quick request) ─────────────────────────
     glossary = ""
     if translate_lang:
         _report(3, "📖 Budowanie glosariusza terminów…")
         try:
-            glossary = _build_glossary(pdf_path, key, translate_lang, translate_from)
+            glossary = _build_glossary(pdf_path, key, translate_lang, translate_from, model=model)
             if glossary:
                 _report(5, f"📖 Glosariusz: {len(glossary.splitlines())} terminów")
         except Exception:
             _report(5, "⚠️ Glosariusz niedostępny — kontynuuję bez niego")
 
     # ── Step 2: Build prompt ─────────────────────────────────────────────
-    prompt = _build_mega_prompt(translate_lang, translate_from, glossary)
+    prompt = _build_mega_prompt(translate_lang, translate_from, glossary, model=model)
 
     # ── Step 3: Render pages as images ───────────────────────────────────
     _report(6, f"📄 Renderowanie {page_count} stron…")
@@ -1706,17 +2053,69 @@ def _gemini_ocr_pages(
     results = {}  # page_idx → text
     collected_images = {}  # filename → bytes
     failed = []
+    failed_errors = {}  # page_idx → error message
     done_count = [0]
+    _abort_flag = [False]  # early abort on auth errors ONLY
+    _first_error_msg = [None]  # capture first error for UI
+    _rate_errors = [0]  # count consecutive rate limit errors
 
     import threading
     lock = threading.Lock()
 
+    # Rate limiter: enforce minimum delay between API calls
+    _min_delay = (60.0 / _GEMMA_RPM) if _is_gemma(model) else 0.1
+    _last_call_time = [0.0]
+    _rate_lock = threading.Lock()
+
+    def _classify_error(e):
+        """Classify error: 'auth', 'safety', 'rate', or 'other'."""
+        msg = str(e).lower()
+        if any(k in msg for k in ("401", "403", "invalid", "api_key", "unauthorized", "permission")):
+            return "auth", f"🔑 Nieprawidłowy klucz API: {str(e)[:120]}"
+        if any(k in msg for k in ("429", "rate", "quota", "resource_exhausted")):
+            return "rate", f"⏱ Limit API wyczerpany: {str(e)[:120]}"
+        if any(k in msg for k in ("safety", "prohibited", "blocked")):
+            return "safety", f"🛡 Zablokowane przez filtr bezpieczeństwa"
+        if any(k in msg for k in ("timeout", "timed out")):
+            return "timeout", f"⏳ Timeout: {str(e)[:80]}"
+        return "other", f"❌ Błąd: {str(e)[:120]}"
+
     def _process_page(page_idx):
-        try:
-            text, usage = _call_gemini_page(key, model, page_images[page_idx], prompt)
-            return page_idx, text, None
-        except Exception as e:
-            return page_idx, "", e
+        if _abort_flag[0]:
+            return page_idx, "", Exception("aborted")
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            # Rate limiter: wait if calling too fast
+            with _rate_lock:
+                now = time.time()
+                elapsed = now - _last_call_time[0]
+                if elapsed < _min_delay:
+                    time.sleep(_min_delay - elapsed)
+                _last_call_time[0] = time.time()
+
+            if _abort_flag[0]:
+                return page_idx, "", Exception("aborted")
+
+            try:
+                text, usage = _call_gemini_page(key, model, page_images[page_idx], prompt)
+                with lock:
+                    _rate_errors[0] = 0  # reset on success
+                return page_idx, text, None
+            except Exception as e:
+                err_class, _ = _classify_error(e)
+                if err_class == "auth":
+                    return page_idx, "", e  # don't retry auth errors
+                if err_class in ("rate", "timeout") and attempt < max_retries - 1:
+                    wait = (2 ** attempt) * 5  # 5s, 10s, 20s
+                    with lock:
+                        _rate_errors[0] += 1
+                        if _rate_errors[0] % 5 == 1:
+                            _report(10, f"⏱ Rate limit — czekam {wait}s (próba {attempt+1}/{max_retries})")
+                    time.sleep(wait)
+                    continue
+                return page_idx, "", e
+        return page_idx, "", Exception("max retries exceeded")
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {pool.submit(_process_page, p): p for p in page_indices}
@@ -1724,9 +2123,22 @@ def _gemini_ocr_pages(
             page_idx, text, err = f.result()
 
             if err:
+                err_class, err_msg = _classify_error(err)
                 failed.append(page_idx)
+                failed_errors[page_idx] = err_msg
+
+                with lock:
+                    if _first_error_msg[0] is None:
+                        _first_error_msg[0] = err_msg
+                        _report(10, err_msg)
+                    # ONLY auth/key errors abort pipeline — rate limits use retry
+                    if err_class == "auth" and not _abort_flag[0]:
+                        _abort_flag[0] = True
+                        _report(10, "⛔ Przerwano — napraw klucz API w ustawieniach (⚙️)")
+
             elif not text or len(text.strip()) < 5:
                 failed.append(page_idx)
+                failed_errors[page_idx] = "📄 Pusta odpowiedź (< 5 znaków)"
             else:
                 # Check for illustration markers
                 stripped = text.strip()
@@ -1754,6 +2166,7 @@ def _gemini_ocr_pages(
                     # Verify translation with langdetect
                     if translate_lang and not _verify_page_local(text, translate_lang):
                         failed.append(page_idx)
+                        failed_errors[page_idx] = "🌐 Weryfikacja języka nie przeszła"
                     else:
                         results[page_idx] = text
 
@@ -1763,80 +2176,21 @@ def _gemini_ocr_pages(
                 if done_count[0] % 10 == 0 or done_count[0] == page_count:
                     _report(pct, f"🚀 {mode}: {done_count[0]}/{page_count} stron…")
 
-    # ── Step 5: Retry failed pages (PARALLEL) ─────────────────────────────
+    # ── Step 5: Report failures ────────────────────────────────────────────
     if failed:
-        _report(80, f"🔄 Ponawiam {len(failed)} nieudanych stron (równolegle)…")
-
-        def _retry_page(page_idx):
-            """Retry a single page up to 3 times, escalating model on last try."""
-            for attempt in range(3):
-                try:
-                    retry_model = model if attempt < 2 else _ESCALATION_MODEL
-                    text, _ = _call_gemini_page(key, retry_model, page_images[page_idx], prompt)
-                    if text and len(text.strip()) > 5:
-                        if translate_lang and not _verify_page_local(text, translate_lang):
-                            if attempt == 2:
-                                return page_idx, text, "escalated"
-                            time.sleep(1)
-                            continue
-                        return page_idx, text, "recovered"
-                except Exception:
-                    time.sleep(2 * (attempt + 1))
-
-            # ── Fallback: extract raw text from PDF via fitz (no API) ──
-            # Handles PROHIBITED_CONTENT (safety filter) and persistent failures
-            try:
-                import fitz as _fitz
-                _doc = _fitz.open(pdf_path)
-                raw_text = _doc[page_idx].get_text().strip()
-                _doc.close()
-                if raw_text and len(raw_text) > 20:
-                    if translate_lang:
-                        # Strategy 1: Translate via litellm (user's configured provider)
-                        try:
-                            system = get_system_prompt(True, translate_lang, translate_from)
-                            translated = process_mega_block(raw_text, system, retries=2)
-                            if translated and len(translated.strip()) > 20:
-                                return page_idx, translated, "fitz+translate"
-                        except Exception:
-                            pass
-
-                        # Strategy 2: Direct Gemini text-only (minimal prompt, no image)
-                        try:
-                            import urllib.request
-                            import json as _json
-                            _url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-                            _prompt = f"Przetłumacz ten tekst na {translate_lang}. Zwróć TYLKO tłumaczenie:\n\n{raw_text}"
-                            _payload = {
-                                "contents": [{"parts": [{"text": _prompt}]}],
-                                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
-                            }
-                            _req = urllib.request.Request(_url, _json.dumps(_payload).encode(), {"Content-Type": "application/json"})
-                            with urllib.request.urlopen(_req, timeout=30) as _r:
-                                _result = _json.loads(_r.read())
-                            _translated = _result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                            if _translated and len(_translated.strip()) > 20:
-                                return page_idx, _translated.strip(), "fitz+gemini_text"
-                        except Exception:
-                            pass
-
-                    # Last resort: return raw text (untranslated but present)
-                    return page_idx, raw_text, "fitz_raw"
-            except Exception:
-                pass
-
-            return page_idx, None, "failed"
-
-        with ThreadPoolExecutor(max_workers=min(workers, len(failed))) as pool:
-            retry_futures = {pool.submit(_retry_page, p): p for p in failed}
-            for f in as_completed(retry_futures):
-                page_idx, text, status = f.result()
-                if text:
-                    results[page_idx] = text
-                    _report(85, f"{'✅' if status == 'recovered' else '⚠️'} Strona {page_idx+1}: {status}")
-                else:
-                    results[page_idx] = f"\n\n[NIEPRZETŁUMACZONE — strona {page_idx+1}]\n\n"
-                    _report(85, f"❌ Strona {page_idx+1}: nie udało się")
+        error_types = {}
+        for idx in failed:
+            reason = failed_errors.get(idx, "nieznany")
+            error_types[reason] = error_types.get(reason, 0) + 1
+        for reason, count in error_types.items():
+            _report(85, f"  {reason} ({count}x)")
+        if _abort_flag[0]:
+            _report(85, f"⛔ {len(failed)}/{page_count} stron nie powiodło się — błąd klucza API")
+            _report(85, f"💡 Sprawdź klucz API w ustawieniach (⚙️)")
+        else:
+            _report(85, f"⚠️ {len(failed)}/{page_count} stron nie powiodło się")
+        for idx in failed:
+            results[idx] = f"\n\n[BŁĄD — strona {idx+1}]\n\n"
 
     # ── Step 6: Assemble in order ────────────────────────────────────────
     _report(90, "📦 Składanie tekstu…")

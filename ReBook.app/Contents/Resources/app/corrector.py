@@ -389,43 +389,43 @@ def correct_markdown(
         )
 
     # ═══ POST-TRANSLATION QUALITY GATE ═══
-    # Check each chunk: if >30% lines look like source language, re-translate
-    # SKIP this gate when translating TO English — the detector is English-hardcoded
-    # and would flag correct English output as "untranslated source"
-    _target_is_english = lang_to.lower().strip() in (
-        "angielski", "english", "eng", "anglais", "englisch", "inglés",
-        "inglese", "английский", "англійська", "英语", "英語",
-    )
-    if use_translate and not _target_is_english:
+    # Multi-check: source language leak, length, duplicates, numbers, chars, markdown
+    # SKIP when translating TO the source language (detector would false-positive)
+    _target_same_as_source = _same_lang(lang_to, lang_from)
+    if use_translate and not _target_same_as_source:
         if progress_callback:
             progress_callback(total, total, "🔬 Kontrola jakości tłumaczenia...")
-        
-        retranslate_indices = []
+
+        retranslate_indices = []  # (i, issues_summary_str)
         for i, part in enumerate(result_parts):
             if part is None:
                 continue
-            eng_ratio = _source_language_ratio(part)
-            if eng_ratio > 0.30:
-                retranslate_indices.append((i, eng_ratio))
-        
+            original_text = '\n'.join(b["content"] for b in mega_blocks[i])
+            issues = _quality_checks(original_text, part, lang_from=lang_from, lang_to=lang_to)
+            errors  = [x for x in issues if x["severity"] == "error"]
+            if errors:
+                summary = " | ".join(x["detail"] for x in errors)
+                retranslate_indices.append((i, summary))
+
         if retranslate_indices and progress_callback:
             progress_callback(total, total,
-                f"⚠️ {len(retranslate_indices)} segmentów ma >30% tekstu źródłowego — ponawiam tłumaczenie...")
+                f"⚠️ {len(retranslate_indices)} segmentów z błędami jakości — powtarzam...")
 
-        for i, ratio in retranslate_indices:
+        for i, summary in retranslate_indices:
             original_text = '\n'.join(b["content"] for b in mega_blocks[i])
             if progress_callback:
                 progress_callback(total, total,
-                    f"🔄 Re-tłumaczenie segmentu {i+1} ({ratio:.0%} źródłowego)...")
+                    f"🔄 Re-tłumaczenie segmentu {i+1}: {summary}")
             try:
                 result = _translate_with_sub_chunks(original_text, system_prompt, 300)
                 if result and len(result.strip()) > 20:
-                    new_ratio = _source_language_ratio(result)
-                    if new_ratio < ratio:  # only replace if actually better
+                    old_issues = _quality_checks(original_text, result_parts[i] or "", lang_from=lang_from, lang_to=lang_to)
+                    new_issues = _quality_checks(original_text, result, lang_from=lang_from, lang_to=lang_to)
+                    if len(new_issues) <= len(old_issues):  # replace only if same or fewer issues
                         result_parts[i] = result
                         if progress_callback:
                             progress_callback(total, total,
-                                f"✅ Segment {i+1}: {ratio:.0%} → {new_ratio:.0%} źródłowego")
+                                f"✅ Segment {i+1}: {len(old_issues)} → {len(new_issues)} problemów")
             except Exception as e:
                 if progress_callback:
                     progress_callback(total, total,
@@ -434,19 +434,208 @@ def correct_markdown(
     return '\n'.join(p for p in result_parts if p is not None)
 
 
-def _source_language_ratio(text: str) -> float:
-    """Estimate what fraction of lines appear to be in English (source language)."""
+# ── Language indicator tables ───────────────────────────────────────────────────────────────
+
+# Stopwords per language — if these appear heavily in translated text, it’s leaking
+_LANG_INDICATORS: dict = {
+    # English
+    "angielski": [' the ', ' and ', ' for ', ' that ', ' with ', ' from ', ' this ', ' have ',
+                  ' are ', ' was ', ' were ', ' been ', ' will ', ' can ', ' also '],
+    "english":   [' the ', ' and ', ' for ', ' that ', ' with ', ' from ', ' this ', ' have ',
+                  ' are ', ' was ', ' were ', ' been ', ' will ', ' can ', ' also '],
+    # German
+    "niemiecki": [' der ', ' die ', ' das ', ' und ', ' ist ', ' mit ', ' von ', ' für ', ' auf ', ' nicht '],
+    "german":    [' der ', ' die ', ' das ', ' und ', ' ist ', ' mit ', ' von ', ' für ', ' auf ', ' nicht '],
+    "deutsch":   [' der ', ' die ', ' das ', ' und ', ' ist ', ' mit ', ' von ', ' für ', ' auf ', ' nicht '],
+    # French
+    "francuski": [' les ', ' des ', ' une ', ' est ', ' que ', ' dans ', ' sur ', ' pour ', ' avec ', ' pas '],
+    "french":    [' les ', ' des ', ' une ', ' est ', ' que ', ' dans ', ' sur ', ' pour ', ' avec ', ' pas '],
+    "francais":  [' les ', ' des ', ' une ', ' est ', ' que ', ' dans ', ' sur ', ' pour ', ' avec '],
+    # Spanish
+    "hiszpanski": [' los ', ' las ', ' una ', ' que ', ' con ', ' por ', ' para ', ' del ', ' más '],
+    "spanish":    [' los ', ' las ', ' una ', ' que ', ' con ', ' por ', ' para ', ' del ', ' no '],
+    "espanol":    [' los ', ' las ', ' una ', ' que ', ' con ', ' por ', ' para ', ' del '],
+    # Italian
+    "wloski":   [' del ', ' della ', ' dei ', ' che ', ' non ', ' con ', ' per ', ' questo '],
+    "italian":  [' del ', ' della ', ' dei ', ' che ', ' non ', ' con ', ' per ', ' questo '],
+    "italiano": [' del ', ' della ', ' dei ', ' che ', ' non ', ' con ', ' per ', ' questo '],
+    # Portuguese
+    "portugalski": [' dos ', ' das ', ' uma ', ' que ', ' com ', ' por ', ' para ', ' são '],
+    "portuguese":  [' dos ', ' das ', ' uma ', ' que ', ' com ', ' por ', ' para ', ' são '],
+    # Russian
+    "rosyjski": ['и ', 'в ', 'на ', 'с ', 'по ', 'за ', 'не ', 'из ', 'для ', 'что '],
+    "russian":  ['и ', 'в ', 'на ', 'с ', 'по ', 'за ', 'не ', 'из ', 'для ', 'что '],
+    # Ukrainian
+    "ukrainski": ['і ', 'в ', 'на ', 'з ', 'по ', 'за ', 'не ', 'із ', 'для ', 'що '],
+    "ukrainian": ['і ', 'в ', 'на ', 'з ', 'по ', 'за ', 'не ', 'із ', 'для ', 'що '],
+    # Polish (target for most users — useful when translating FROM Polish)
+    "polski":  [' i ', ' w ', ' na ', ' się ', ' jest ', ' dla ', ' nie ', ' do ', ' że ', ' jak '],
+    "polish":  [' i ', ' w ', ' na ', ' się ', ' jest ', ' dla ', ' nie ', ' do ', ' że ', ' jak '],
+    # Dutch
+    "holenderski": [' de ', ' het ', ' een ', ' van ', ' in ', ' is ', ' dat ', ' met ', ' zijn '],
+    "dutch":       [' de ', ' het ', ' een ', ' van ', ' in ', ' is ', ' dat ', ' met ', ' zijn '],
+    # Swedish
+    "szwedzki": [' och ', ' att ', ' det ', ' som ', ' är ', ' för ', ' med ', ' den '],
+    "swedish":  [' och ', ' att ', ' det ', ' som ', ' är ', ' för ', ' med ', ' den '],
+    # Czech
+    "czeski": [' a ', ' v ', ' na ', ' je ', ' se ', ' pro ', ' jak ', ' nebo '],
+    "czech":  [' a ', ' v ', ' na ', ' je ', ' se ', ' pro ', ' jak ', ' nebo '],
+    # Turkish
+    "turecki": [' ve ', ' bir ', ' bu ', ' da ', ' de ', ' ile ', ' için '],
+    "turkish": [' ve ', ' bir ', ' bu ', ' da ', ' de ', ' ile ', ' için '],
+    # Japanese (character-level)
+    "japonski": ['の', 'は', 'が', 'に', 'を', 'で', 'と', 'も', 'た'],
+    "japanese": ['の', 'は', 'が', 'に', 'を', 'で', 'と', 'も', 'た'],
+    # Chinese
+    "chinski": ['的', '是', '在', '有', '不', '这', '也', '了'],
+    "chinese": ['的', '是', '在', '有', '不', '这', '也', '了'],
+}
+
+# Canonical language code for Cyrillic check
+_CYRILLIC_LANGS = {"rosyjski", "russian", "ukrainski", "ukrainian",
+                   "болгарский", "bulgarski", "bulgarian",
+                   "serbski", "serbian", "српски"}
+
+
+def _same_lang(a: str, b: str) -> bool:
+    """True if a and b refer to the same language (loose match)."""
+    norm = lambda s: s.lower().strip().replace('ł', 'l').replace('ó', 'o').replace('ń', 'n')
+    return norm(a) == norm(b) or (norm(a) in norm(b)) or (norm(b) in norm(a))
+
+
+def _source_language_ratio(text: str, lang: str = "angielski") -> float:
+    """Estimate what fraction of lines appear to be in `lang` (the source language).
+
+    Uses the _LANG_INDICATORS table so it works for any source language,
+    not just English.
+    """
     lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 20]
     if not lines:
         return 0.0
-    english_indicators = [' the ', ' and ', ' for ', ' that ', ' with ', ' from ',
-                          ' this ', ' have ', ' are ', ' was ', ' were ', ' been ']
-    eng_count = 0
+    indicators = _LANG_INDICATORS.get(lang.lower().strip(),
+                                      _LANG_INDICATORS["angielski"])  # fallback to English
+    # For Latin-script languages use word matching; for CJK use char presence
+    cjk_langs = {"japanese", "japonski", "chinese", "chinski"}
+    is_cjk = lang.lower().strip() in cjk_langs
+
+    match_count = 0
     for line in lines:
-        ascii_ratio = sum(1 for c in line if ord(c) < 128) / len(line)
-        if ascii_ratio > 0.85 and any(w in line.lower() for w in english_indicators):
-            eng_count += 1
-    return eng_count / len(lines)
+        ll = line.lower()
+        if is_cjk:
+            if any(ch in ll for ch in indicators):
+                match_count += 1
+        else:
+            ascii_ratio = sum(1 for c in line if ord(c) < 128) / max(len(line), 1)
+            if ascii_ratio > 0.70 and any(w in ll for w in indicators):
+                match_count += 1
+    return match_count / len(lines)
+
+
+def _quality_checks(
+    original: str,
+    translated: str,
+    lang_from: str = "angielski",
+    lang_to: str = "polski",
+) -> list:
+    """Run a battery of zero-cost (no-LLM) quality checks on a translated segment.
+
+    Returns a list of issue dicts: {"type": str, "severity": "error"|"warn", "detail": str}
+
+    Checks:
+    1. Source-language leakage     — >30% lines still in source lang
+    2. Empty / minimal output      — translation is near-empty
+    3. Length ratio                — translation 3x shorter or longer than original
+    4. Duplicate paragraphs        — LLM repeated itself
+    5. Number consistency          — numbers from original missing in translation
+    6. Foreign char injection      — Cyrillic in non-Cyrillic target
+    7. Code block preservation     — ``` blocks disappeared
+    8. Markdown header integrity   — # header count changed drastically
+    9. Sentence count ratio        — too few or too many sentences vs original
+    """
+    import re
+    issues = []
+
+    # 1. Source-language leakage
+    src_ratio = _source_language_ratio(translated, lang=lang_from)
+    if src_ratio > 0.30:
+        issues.append({"type": "source_lang_leak", "severity": "error",
+                       "detail": f"{src_ratio:.0%} tekstu źródłowego ({lang_from}) w tłumaczeniu"})
+    elif src_ratio > 0.15:
+        issues.append({"type": "source_lang_leak", "severity": "warn",
+                       "detail": f"{src_ratio:.0%} tekstu źródłowego ({lang_from}) w tłumaczeniu"})
+
+    # 2. Empty / minimal output
+    if len(translated.strip()) < 20 and len(original.strip()) > 100:
+        issues.append({"type": "empty_output", "severity": "error",
+                       "detail": "Tłumaczenie puste lub minimalne"})
+        return issues  # stop early, nothing more to check
+
+    # 3. Length ratio
+    orig_words  = max(len(original.split()), 1)
+    trans_words = len(translated.split())
+    if orig_words > 20:
+        ratio = trans_words / orig_words
+        if ratio < 0.30:
+            issues.append({"type": "too_short", "severity": "error",
+                           "detail": f"Tłumaczenie {ratio:.0%} długości oryginału (za krótkie)"})
+        elif ratio > 3.5:
+            issues.append({"type": "too_long", "severity": "error",
+                           "detail": f"Tłumaczenie {ratio:.0%} długości oryginału (powtórzenia?)"})
+        elif ratio < 0.50 or ratio > 2.5:
+            issues.append({"type": "length_ratio", "severity": "warn",
+                           "detail": f"Tłumaczenie {ratio:.0%} długości oryginału"})
+
+    # 4. Duplicate paragraph detection
+    paras = [p.strip() for p in re.split(r'\n{2,}', translated) if len(p.strip()) > 50]
+    seen: set = set()
+    for p in paras:
+        if p in seen:
+            issues.append({"type": "duplicate_content", "severity": "error",
+                           "detail": "Zduplikowany akapit wykryty (LLM powtórzył treść)"})
+            break
+        seen.add(p)
+
+    # 5. Number consistency (2+ digit numbers)
+    orig_nums  = set(re.findall(r'\b\d{2,}\b', original))
+    trans_nums = set(re.findall(r'\b\d{2,}\b', translated))
+    if orig_nums:
+        missing = orig_nums - trans_nums
+        missing_ratio = len(missing) / len(orig_nums)
+        if missing_ratio > 0.60 and len(missing) > 3:
+            issues.append({"type": "missing_numbers", "severity": "warn",
+                           "detail": f"Brakuje {len(missing)}/{len(orig_nums)} liczb z oryginału"})
+
+    # 6. Foreign character injection
+    if lang_to.lower().strip() not in _CYRILLIC_LANGS:
+        cyrillic_count = sum(1 for c in translated if '\u0400' <= c <= '\u04ff')
+        if cyrillic_count > 10:
+            issues.append({"type": "foreign_chars", "severity": "error",
+                           "detail": f"Cyrylica w tłumaczeniu ({cyrillic_count} znaków) — halucynacja"})
+
+    # 7. Code block preservation
+    orig_code  = len(re.findall(r'```[\s\S]+?```', original))
+    trans_code = len(re.findall(r'```[\s\S]+?```', translated))
+    if orig_code > 0 and trans_code < orig_code:
+        issues.append({"type": "missing_code_blocks", "severity": "warn",
+                       "detail": f"Brakuje {orig_code - trans_code}/{orig_code} bloków kodu"})
+
+    # 8. Markdown header integrity
+    orig_h  = len(re.findall(r'^#{1,6} ', original,    re.MULTILINE))
+    trans_h = len(re.findall(r'^#{1,6} ', translated,  re.MULTILINE))
+    if orig_h > 2 and trans_h < orig_h * 0.5:
+        issues.append({"type": "broken_headers", "severity": "warn",
+                       "detail": f"Nagłówki: oryginał {orig_h}, tłumaczenie {trans_h}"})
+
+    # 9. Sentence count ratio
+    orig_sent  = len(re.findall(r'[.!?]+', original))
+    trans_sent = len(re.findall(r'[.!?]+', translated))
+    if orig_sent > 5:
+        sent_ratio = trans_sent / max(orig_sent, 1)
+        if sent_ratio < 0.30 or sent_ratio > 3.0:
+            issues.append({"type": "sentence_count", "severity": "warn",
+                           "detail": f"Zdania: oryginał {orig_sent}, tłumaczenie {trans_sent}"})
+
+    return issues
 
 
 def _translate_with_sub_chunks(
