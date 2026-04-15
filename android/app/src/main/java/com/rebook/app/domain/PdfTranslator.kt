@@ -17,8 +17,6 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream.AppendMode
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
-import com.tom_roush.pdfbox.pdmodel.font.Standard14Fonts
-import com.tom_roush.pdfbox.util.Matrix
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -148,7 +146,7 @@ object PdfTranslator {
         onProgress("translate_pdf", 82, "📝 Składanie PDF…")
 
         val document = PDDocument.load(inputFile)
-        val font = PDType1Font(Standard14Fonts.FontName.HELVETICA)
+        val font = PDType1Font.HELVETICA
 
         for ((pageIdx, pairs) in pageTranslations) {
             val pdPage = document.getPage(pageIdx)

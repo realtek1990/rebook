@@ -166,6 +166,11 @@ ${markdownToBasicHtml(verifiedText)}
 </body></html>"""
                 outputFile.writeText(html)
             }
+            OutputFormat.PDF -> {
+                // PDF→PDF translation is handled in the early-return block above;
+                // reaching this point is a logic error.
+                error("PDF output via OCR pipeline is not supported; use translatePdf instead.")
+            }
         }
 
         onProgress("done", 100, "Gotowe: $outputName")
