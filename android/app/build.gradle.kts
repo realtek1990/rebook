@@ -76,5 +76,5 @@ dependencies {
     implementation("org.jsoup:jsoup:1.18.3")
 
     // PDF read/write for layout-preserving PDF translation
-    implementation("com.tom_roush:pdfbox-android:2.0.27.0")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 }
