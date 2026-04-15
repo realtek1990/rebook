@@ -558,6 +558,243 @@ def translate_epub(
     return str(out)
 
 
+# ─── PDF → PDF layout-preserving translation ──────────────────────────────────
+
+def _pdf_find_font() -> Optional[str]:
+    """Return path to a Unicode-capable font for PDF overlay text."""
+    candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _pdf_extract_blocks(page) -> list:
+    """Extract text blocks from a PyMuPDF page with style metadata."""
+    import fitz  # noqa: F401 – imported here to avoid mandatory dep at module level
+    blocks = []
+    for blk in page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]:
+        if blk.get("type") != 0:   # skip image blocks
+            continue
+        text, fsize, bold, color = "", 11.0, False, 0
+        for line in blk.get("lines", []):
+            for span in line.get("spans", []):
+                text  += span.get("text", "")
+                fsize  = float(span.get("size", fsize))
+                bold   = bool(span.get("flags", 0) & (1 << 4))
+                color  = span.get("color", color)
+        text = text.strip()
+        if len(text) < 4:
+            continue
+        blocks.append({
+            "bbox":  tuple(blk["bbox"]),
+            "text":  text,
+            "size":  fsize,
+            "bold":  bold,
+            "color": color,
+        })
+    return blocks
+
+
+def _pdf_apply(page, blocks: list, translations: list, font_path: Optional[str]) -> None:
+    """Paint white rectangles over originals and insert translated text."""
+    import fitz
+    for blk, pl in zip(blocks, translations):
+        if not pl or not pl.strip():
+            continue
+        rect = fitz.Rect(blk["bbox"])
+        # Cover original text with white
+        page.draw_rect(rect, color=(1, 1, 1), fill=(1, 1, 1), overlay=True)
+        # Compute text color
+        c = blk["color"]
+        rgb = ((c >> 16) & 0xFF) / 255, ((c >> 8) & 0xFF) / 255, (c & 0xFF) / 255
+        # Insert Polish text — shrink font until it fits
+        for scale in [1.0, 0.93, 0.86, 0.79, 0.72, 0.65, 0.58]:
+            size = max(5.0, blk["size"] * scale)
+            kw = dict(fontsize=size, color=rgb, align=0, overlay=True)
+            if font_path:
+                kw.update(fontfile=font_path, fontname="rebook_f0")
+            else:
+                kw["fontname"] = "helv"
+            try:
+                rc = page.insert_textbox(rect, pl, **kw)
+                if rc >= 0:
+                    break
+            except Exception:
+                break
+
+
+def translate_pdf(
+    input_path: str,
+    lang_from: str = "angielski",
+    lang_to:   str = "polski",
+    page_start: int = 0,
+    page_end:   int = 0,
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+) -> str:
+    """Translate a PDF in-place preserving original layout.
+
+    Uses PyMuPDF to extract text blocks with exact bounding boxes, translates
+    each block individually via corrector.process_mega_block() (one LLM call
+    per block — eliminates JSON-array parse failures), covers originals with
+    white rectangles, and inserts translated text at the same position.
+
+    Supports checkpoint/resume: progress is saved to
+    ``<input_stem>.translate_pdf_progress.json`` next to the source file.
+
+    Args:
+        input_path:  Path to source PDF.
+        lang_from:   Source language name (e.g. "angielski").
+        lang_to:     Target language name (e.g. "polski").
+        page_start:  First page to process (1-indexed; 0 = from beginning).
+        page_end:    Last page to process  (1-indexed; 0 = to the end).
+        progress_callback: ``fn(stage, percent, message)`` progress hook.
+
+    Returns:
+        Path to the translated PDF (``<stem>_<lang_to>.pdf``).
+    """
+    try:
+        import fitz
+    except ImportError:
+        raise ImportError(
+            "PyMuPDF wymagane do tłumaczenia PDF.\n"
+            "Uruchom: pip install PyMuPDF"
+        )
+
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    src = Path(input_path)
+    out = src.parent / f"{src.stem}_{lang_to}.pdf"
+    checkpoint_file = src.parent / f"{src.stem}.translate_pdf_progress.json"
+
+    font_path = _pdf_find_font()
+
+    def report(pct: int, msg: str) -> None:
+        if progress_callback:
+            progress_callback("translate_pdf", pct, msg)
+
+    # ── Load checkpoint ───────────────────────────────────────────────────────
+    checkpoint: dict = {}
+    if checkpoint_file.exists():
+        try:
+            checkpoint = json.loads(checkpoint_file.read_text(encoding="utf-8"))
+            report(0, f"▶ Wznowienie — {len(checkpoint)} stron już gotowych")
+        except Exception:
+            checkpoint = {}
+
+    # ── Determine page range ──────────────────────────────────────────────────
+    doc_info = fitz.open(str(src))
+    total_pages = len(doc_info)
+    doc_info.close()
+
+    p_from = max(0, (page_start - 1) if page_start > 0 else 0)
+    p_to   = min(total_pages, page_end if page_end > 0 else total_pages)
+    pages_to_process = list(range(p_from, p_to))
+    todo = [p for p in pages_to_process if str(p) not in checkpoint]
+
+    report(0, f"📄 Tłumaczenie PDF: {len(pages_to_process)} stron "
+              f"({len(checkpoint)} z checkpointu, {len(todo)} do zrobienia)")
+
+    # ── Build system prompt ───────────────────────────────────────────────────
+    system_prompt = (
+        f"Przetłumacz podany tekst z języka {lang_from} na {lang_to}. "
+        "Zachowaj oryginalne formatowanie, symbole, skróty klawiaturowe i nazwy własne. "
+        f"Odpowiedz TYLKO przetłumaczonym tekstem po {lang_to}, bez żadnych komentarzy."
+    )
+
+    ck_lock = threading.Lock()
+
+    def save_checkpoint() -> None:
+        checkpoint_file.write_text(
+            json.dumps(checkpoint, ensure_ascii=False, indent=None),
+            encoding="utf-8"
+        )
+
+    # ── Translate one page ────────────────────────────────────────────────────
+    def translate_page(page_idx: int):
+        doc = fitz.open(str(src))
+        blocks = _pdf_extract_blocks(doc[page_idx])
+        doc.close()
+
+        translations: list[Optional[str]] = []
+        for blk in blocks:
+            try:
+                tr = corrector.process_mega_block(blk["text"], system_prompt, retries=4)
+                translations.append(tr if tr and tr.strip() else None)
+            except Exception:
+                translations.append(None)
+
+        entry = {
+            "blocks":       [
+                {k: list(v) if k == "bbox" else v for k, v in b.items()}
+                for b in blocks
+            ],
+            "translations": translations,
+        }
+        with ck_lock:
+            checkpoint[str(page_idx)] = entry
+            save_checkpoint()
+        return page_idx, blocks, translations
+
+    # ── Workers — use corrector's dynamic limit ───────────────────────────────
+    try:
+        workers = corrector._llm_workers
+    except AttributeError:
+        workers = 4
+
+    done_count  = len(checkpoint)
+    total_work  = len(pages_to_process)
+    lock        = threading.Lock()
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(translate_page, p): p for p in todo}
+        for future in as_completed(futures):
+            future.result()   # raises on unhandled exception
+            with lock:
+                done_count += 1
+            pct = int(done_count / total_work * 80) if total_work else 80
+            report(pct, f"Tłumaczenie… {done_count}/{total_work} stron")
+
+    # ── Render output PDF ─────────────────────────────────────────────────────
+    report(82, "📝 Składanie PDF wyjściowego…")
+    src_doc = fitz.open(str(src))
+    out_doc = fitz.open()
+    out_doc.insert_pdf(src_doc)
+
+    for page_idx in pages_to_process:
+        entry = checkpoint.get(str(page_idx))
+        if not entry:
+            continue
+        raw_blocks = entry["blocks"]
+        translations = entry["translations"]
+        blocks = [{**b, "bbox": tuple(b["bbox"])} for b in raw_blocks]
+        _pdf_apply(out_doc[page_idx], blocks, translations, font_path)
+        if (page_idx + 1) % 200 == 0:
+            report(82 + int((page_idx - p_from) / max(len(pages_to_process), 1) * 15),
+                   f"Składanie PDF — strona {page_idx + 1}/{total_pages}…")
+
+    report(97, "💾 Zapisywanie PDF…")
+    out_doc.save(str(out), garbage=4, deflate=True, clean=True)
+    out_doc.close()
+    src_doc.close()
+
+    # ── Cleanup checkpoint ────────────────────────────────────────────────────
+    try:
+        checkpoint_file.unlink()
+    except Exception:
+        pass
+
+    report(100, f"✅ Gotowe! → {out.name}")
+    return str(out)
+
+
 class PipelineConfig:
     """Configuration for a multi-step pipeline run."""
 

@@ -22,6 +22,7 @@ data class ConversionState(
     val outputFormat: Converter.OutputFormat = Converter.OutputFormat.EPUB,
     val useAi: Boolean = true,
     val translate: Boolean = false,
+    val translatePdf: Boolean = false,   // layout-preserving PDF→PDF translation
     val translateImages: Boolean = false,
     val langFrom: String = "",
     val langTo: String = "polski",
@@ -117,6 +118,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
     fun setOutputFormat(format: Converter.OutputFormat) { _state.update { it.copy(outputFormat = format) } }
     fun setUseAi(v: Boolean) { _state.update { it.copy(useAi = v) } }
     fun setTranslate(v: Boolean) { _state.update { it.copy(translate = v) } }
+    fun setTranslatePdf(v: Boolean) { _state.update { it.copy(translatePdf = v) } }
     fun setTranslateImages(v: Boolean) { _state.update { it.copy(translateImages = v) } }
     fun setLangFrom(v: String) { _state.update { it.copy(langFrom = v) } }
     fun setLangTo(v: String) { _state.update { it.copy(langTo = v) } }
@@ -158,6 +160,7 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
                     outputFormat = _state.value.outputFormat,
                     useLlm = _state.value.useAi || _state.value.translate,
                     translate = _state.value.translate,
+                    translatePdf = _state.value.translatePdf,
                     langFrom = _state.value.langFrom,
                     langTo = _state.value.langTo,
                     verify = _state.value.verify,
@@ -531,12 +534,13 @@ class ConversionViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun mapStageProgress(stage: String, pct: Int): Float {
         val (lo, hi) = when (stage) {
-            "ocr" -> 0f to 0.30f
-            "correction" -> 0.30f to 0.60f
+            "ocr"          -> 0f    to 0.30f
+            "correction"   -> 0.30f to 0.60f
             "verification" -> 0.60f to 0.85f
-            "export" -> 0.85f to 1f
-            "done" -> 1f to 1f
-            else -> 0f to 1f
+            "export"       -> 0.85f to 1f
+            "translate_pdf"-> 0f    to 1f    // full range for PDF→PDF
+            "done"         -> 1f    to 1f
+            else           -> 0f    to 1f
         }
         return lo + (pct / 100f) * (hi - lo)
     }

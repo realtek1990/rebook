@@ -12,29 +12,87 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
-# ── Voice catalogue ──────────────────────────────────────────────────────────
+# ── Per-language voice maps ──────────────────────────────────────────────────
 
-VOICES: dict[str, str] = {
-    "pl-PL-MarekNeural": "Marek (PL, Męski)",
-    "pl-PL-ZofiaNeural": "Zofia (PL, Żeński)",
-    "en-US-GuyNeural":   "Guy (EN, Male)",
-    "en-US-JennyNeural": "Jenny (EN, Female)",
-    "es-ES-AlvaroNeural": "Alvaro (ES, Male)",
-    "es-ES-ElviraNeural": "Elvira (ES, Female)",
-    "de-DE-ConradNeural": "Conrad (DE, Male)",
-    "fr-FR-HenriNeural":  "Henri (FR, Male)",
+VOICES_BY_LANG: dict[str, dict[str, str]] = {
+    "pl": {"pl-PL-MarekNeural": "♂ Marek (PL)", "pl-PL-ZofiaNeural": "♀ Zofia (PL)"},
+    "en": {"en-US-AndrewNeural": "♂ Andrew (US)", "en-US-JennyNeural": "♀ Jenny (US)", "en-GB-RyanNeural": "♂ Ryan (GB)"},
+    "de": {"de-DE-ConradNeural": "♂ Conrad (DE)", "de-DE-KatjaNeural": "♀ Katja (DE)"},
+    "fr": {"fr-FR-HenriNeural": "♂ Henri (FR)", "fr-FR-DeniseNeural": "♀ Denise (FR)"},
+    "es": {"es-ES-AlvaroNeural": "♂ Álvaro (ES)", "es-ES-ElviraNeural": "♀ Elvira (ES)"},
+    "it": {"it-IT-DiegoNeural": "♂ Diego (IT)", "it-IT-ElsaNeural": "♀ Elsa (IT)"},
+    "pt": {"pt-PT-DuarteNeural": "♂ Duarte (PT)", "pt-BR-FranciscaNeural": "♀ Francisca (BR)"},
+    "uk": {"uk-UA-OstapNeural": "♂ Ostap (UA)", "uk-UA-PolinaNeural": "♀ Polina (UA)"},
+    "cs": {"cs-CZ-AntoninNeural": "♂ Antonín (CZ)", "cs-CZ-VlastaNeural": "♀ Vlasta (CZ)"},
+    "ru": {"ru-RU-DmitryNeural": "♂ Dmitry (RU)", "ru-RU-SvetlanaNeural": "♀ Svetlana (RU)"},
+    "ja": {"ja-JP-KeitaNeural": "♂ Keita (JP)", "ja-JP-NanamiNeural": "♀ Nanami (JP)"},
+    "zh": {"zh-CN-YunxiNeural": "♂ Yunxi (CN)", "zh-CN-XiaoxiaoNeural": "♀ Xiaoxiao (CN)"},
+    "ar": {"ar-SA-HamedNeural": "♂ Hamed (SA)", "ar-EG-SalmaNeural": "♀ Salma (EG)"},
+    "tr": {"tr-TR-AhmetNeural": "♂ Ahmet (TR)", "tr-TR-EmelNeural": "♀ Emel (TR)"},
+    "nl": {"nl-NL-MaartenNeural": "♂ Maarten (NL)", "nl-NL-FennaNeural": "♀ Fenna (NL)"},
 }
+
+_LANG_TO_CODE: dict[str, str] = {
+    "polski": "pl", "angielski": "en", "english": "en",
+    "niemiecki": "de", "deutsch": "de", "german": "de",
+    "francuski": "fr", "français": "fr", "french": "fr",
+    "hiszpański": "es", "español": "es", "spanish": "es",
+    "włoski": "it", "italiano": "it", "italian": "it",
+    "portugalski": "pt", "português": "pt", "portuguese": "pt",
+    "ukraiński": "uk", "ukrainian": "uk",
+    "czeski": "cs", "czech": "cs",
+    "rosyjski": "ru", "russian": "ru",
+    "japoński": "ja", "japanese": "ja",
+    "chiński": "zh", "chinese": "zh",
+    "arabski": "ar", "arabic": "ar",
+    "turecki": "tr", "turkish": "tr",
+    "niderlandzki": "nl", "dutch": "nl",
+}
+
+
+def voices_for(lang_to: str) -> dict[str, str]:
+    """Return voice dict for the given target language name (falls back to PL)."""
+    code = _LANG_TO_CODE.get(lang_to.lower().strip(), "pl")
+    return VOICES_BY_LANG.get(code, VOICES_BY_LANG["pl"])
+
+
+# Legacy flat map — still used by older call sites; defaults to PL voices
+VOICES: dict[str, str] = VOICES_BY_LANG["pl"]
 
 VOICE_SAMPLE_TEXT: dict[str, str] = {
-    "pl-PL-MarekNeural":  "Witaj! Jestem Marek. Twój lektor audiobooków.",
-    "pl-PL-ZofiaNeural":  "Witaj! Jestem Zofia. Twój lektor audiobooków.",
-    "en-US-GuyNeural":    "Hello! I'm Guy, your audiobook narrator.",
-    "en-US-JennyNeural":  "Hello! I'm Jenny, your audiobook narrator.",
-    "es-ES-AlvaroNeural": "¡Hola! Soy Álvaro, tu narrador de audiolibros.",
-    "es-ES-ElviraNeural": "¡Hola! Soy Elvira, tu narradora de audiolibros.",
-    "de-DE-ConradNeural": "Hallo! Ich bin Conrad, Ihr Hörbuch-Erzähler.",
-    "fr-FR-HenriNeural":  "Bonjour! Je suis Henri, votre narrateur.",
+    "pl-PL-MarekNeural":     "Witaj! Jestem Marek. Twój lektor audiobooków.",
+    "pl-PL-ZofiaNeural":     "Witaj! Jestem Zofia. Twój lektor audiobooków.",
+    "en-US-AndrewNeural":    "Hello! I'm Andrew, your audiobook narrator.",
+    "en-US-JennyNeural":     "Hello! I'm Jenny, your audiobook narrator.",
+    "en-GB-RyanNeural":      "Hello! I'm Ryan, your audiobook narrator.",
+    "de-DE-ConradNeural":    "Hallo! Ich bin Conrad, Ihr Hörbuch-Erzähler.",
+    "de-DE-KatjaNeural":     "Hallo! Ich bin Katja, Ihre Hörbuch-Erzählerin.",
+    "fr-FR-HenriNeural":     "Bonjour! Je suis Henri, votre narrateur.",
+    "fr-FR-DeniseNeural":    "Bonjour! Je suis Denise, votre narratrice.",
+    "es-ES-AlvaroNeural":    "¡Hola! Soy Álvaro, tu narrador de audiolibros.",
+    "es-ES-ElviraNeural":    "¡Hola! Soy Elvira, tu narradora de audiolibros.",
+    "it-IT-DiegoNeural":     "Ciao! Sono Diego, il tuo narratore.",
+    "it-IT-ElsaNeural":      "Ciao! Sono Elsa, la tua narratrice.",
+    "uk-UA-OstapNeural":     "Привіт! Я Остап, ваш оповідач аудіокниг.",
+    "uk-UA-PolinaNeural":    "Привіт! Я Поліна, ваша оповідачка аудіокниг.",
+    "cs-CZ-AntoninNeural":   "Ahoj! Jsem Antonín, váš průvodce audioknihou.",
+    "cs-CZ-VlastaNeural":    "Ahoj! Jsem Vlasta, vaše průvodkyně audioknihou.",
+    "ru-RU-DmitryNeural":    "Привет! Я Дмитрий, ваш чтец аудиокниг.",
+    "ru-RU-SvetlanaNeural":  "Привет! Я Светлана, ваша чтица аудиокниг.",
+    "ja-JP-KeitaNeural":     "こんにちは!私はKeita、あなたのオーディオブックナレーターです。",
+    "ja-JP-NanamiNeural":    "こんにちは!私はNanami、あなたのオーディオブックナレーターです。",
+    "pt-PT-DuarteNeural":    "Olá! Sou Duarte, o seu narrador de audiolivros.",
+    "pt-BR-FranciscaNeural": "Olá! Sou Francisca, sua narradora de audiolivros.",
+    "zh-CN-YunxiNeural":     "你好！我是云希，您的有声书播音员。",
+    "zh-CN-XiaoxiaoNeural":  "你好！我是晓晓，您的有声书播音员。",
+    "ar-SA-HamedNeural":     "مرحبا! أنا حامد، راوي الكتب الصوتية.",
+    "ar-EG-SalmaNeural":     "مرحبا! أنا سلمى، راوية الكتب الصوتية.",
+    "tr-TR-AhmetNeural":     "Merhaba! Ben Ahmet, sesli kitap anlatıcınız.",
+    "tr-TR-EmelNeural":      "Merhaba! Ben Emel, sesli kitap anlatıcınız.",
+    "nl-NL-MaartenNeural":   "Hallo! Ik ben Maarten, uw audiobook-verteller.",
+    "nl-NL-FennaNeural":     "Hallo! Ik ben Fenna, uw audiobook-verteller.",
 }
+
 
 # ── Chapter detection ────────────────────────────────────────────────────────
 

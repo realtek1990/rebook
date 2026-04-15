@@ -234,4 +234,36 @@ Zasady:
         val verifiedPart = results.joinToString("\n\n")
         if (remaining.isNotBlank()) "$verifiedPart\n\n$remaining" else verifiedPart
     }
+
+    /**
+     * Translate / correct a SINGLE text block.
+     *
+     * Unlike [processText], this makes exactly one LLM call — no chunking.
+     * Used by [PdfTranslator] for layout-preserving PDF translation where each
+     * bounding-box block is sent individually to eliminate JSON-array parse failures.
+     *
+     * @param text         The text to translate/correct.
+     * @param systemPrompt The system prompt (caller builds it).
+     * @param config       App configuration with API key and model.
+     * @return Translated text, or null on failure.
+     */
+    suspend fun processBlock(
+        text: String,
+        systemPrompt: String,
+        config: AppConfig,
+    ): String? {
+        if (config.apiKey.isBlank() || text.isBlank()) return null
+        for (attempt in 1..MAX_RETRIES) {
+            try {
+                return AiProvider.complete(
+                    systemPrompt = systemPrompt,
+                    userText     = text,
+                    config       = config,
+                )
+            } catch (e: Exception) {
+                if (attempt < MAX_RETRIES) delay(1000L * attempt)
+            }
+        }
+        return null
+    }
 }

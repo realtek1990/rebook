@@ -412,6 +412,7 @@ class AppDelegate(NSObject):
         self._langToField.setStringValue_("polski")
         self._langToField.setCompletes_(True)
         self._langToField.setNumberOfVisibleItems_(10)
+        self._langToField.setDelegate_(self)   # triggers comboBoxSelectionDidChange:
         self._langView.addSubview_(self._langToField)
         cv.addSubview_(self._langView)
         top -= 62
@@ -449,18 +450,15 @@ class AppDelegate(NSObject):
 
         self._audiobookPanel = NSView.alloc().initWithFrame_(NSMakeRect(PAD, top - 86, CW, 86))
 
-        # Voice popup
-        voice_keys = list(tts_engine.VOICES.keys())
-        voice_labels = list(tts_engine.VOICES.values())
+        # Voice popup — label only (contents filled by _refreshVoicesForLang)
         voiceLbl = _label("🎙 Głos:", size=12)
         voiceLbl.setFrame_(NSMakeRect(0, 64, 55, 16))
         self._audiobookPanel.addSubview_(voiceLbl)
 
         self._voicePopup = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(58, 60, 200, 24), False)
-        for lbl in voice_labels:
-            self._voicePopup.addItemWithTitle_(lbl)
         self._audiobookPanel.addSubview_(self._voicePopup)
-        self._voiceKeys = voice_keys
+        self._voiceKeys = []
+        self._refreshVoicesForLang("polski")   # populate for default language
 
         # Sample play button
         self._sampleBtn = NSButton.alloc().initWithFrame_(NSMakeRect(265, 60, 90, 24))
@@ -867,6 +865,20 @@ class AppDelegate(NSObject):
         args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start, page_end, verify)
         threading.Thread(target=self._runConversion, args=args, daemon=True).start()
 
+    def _refreshVoicesForLang(self, lang_to: str):
+        """Repopulate the voice popup with voices appropriate for lang_to."""
+        voices = tts_engine.voices_for(lang_to)   # dict key→label
+        self._voicePopup.removeAllItems()
+        for lbl in voices.values():
+            self._voicePopup.addItemWithTitle_(lbl)
+        self._voiceKeys = list(voices.keys())
+
+    def comboBoxSelectionDidChange_(self, notification):
+        """Called by NSComboBox when user selects an item (lang_to delegate)."""
+        lang_to = str(self._langToField.stringValue())
+        if lang_to:
+            self._refreshVoicesForLang(lang_to)
+
     @objc.IBAction
     def playVoiceSample_(self, sender):
         """Preview the selected TTS voice with a short sample."""
@@ -1060,19 +1072,30 @@ class AppDelegate(NSObject):
                     raise InterruptedError("⛔ Konwersja zatrzymana przez użytkownika")
                 self._onProgress(stage, pct, msg)
 
-            result = converter.convert_file(
-                input_path=path,
-                output_format=fmt,
-                use_llm=use_llm,
-                use_translate=translate,
-                translate_images=translate_images,
-                verify_translation=verify,
-                lang_from=lang_from,
-                lang_to=lang_to,
-                progress_callback=_progress_with_cancel,
-                page_start=page_start,
-                page_end=page_end,
-            )
+            # ── PDF → PDF layout-preserving translation ──────────────────────
+            if fmt == "pdf" and use_llm and translate:
+                result = converter.translate_pdf(
+                    input_path=path,
+                    lang_from=lang_from,
+                    lang_to=lang_to,
+                    page_start=page_start,
+                    page_end=page_end,
+                    progress_callback=_progress_with_cancel,
+                )
+            else:
+                result = converter.convert_file(
+                    input_path=path,
+                    output_format=fmt,
+                    use_llm=use_llm,
+                    use_translate=translate,
+                    translate_images=translate_images,
+                    verify_translation=verify,
+                    lang_from=lang_from,
+                    lang_to=lang_to,
+                    progress_callback=_progress_with_cancel,
+                    page_start=page_start,
+                    page_end=page_end,
+                )
             self._scheduleUI("_conversionDone", result)
         except InterruptedError:
             self._scheduleUI("_conversionCancelled", None)
@@ -1080,6 +1103,7 @@ class AppDelegate(NSObject):
             import traceback
             traceback.print_exc()
             self._scheduleUI("_conversionError", str(e))
+
 
     @objc.python_method
     def _onProgress(self, stage, pct, msg):
@@ -1100,12 +1124,13 @@ class AppDelegate(NSObject):
     def _updateProgress(self, info):
         stage, pct, msg = info["stage"], info["pct"], info["msg"]
         total = 100
-        if stage == "ocr": total = pct * 0.4
-        elif stage == "correction": total = 40 + pct * 0.3
-        elif stage == "verification": total = 70 + pct * 0.1
-        elif stage == "images": total = 80 + pct * 0.1
-        elif stage == "export": total = 90 + pct * 0.1
-        elif stage == "done": total = 100
+        if stage == "ocr":           total = pct * 0.4
+        elif stage == "correction":  total = 40 + pct * 0.3
+        elif stage == "verification":total = 70 + pct * 0.1
+        elif stage == "images":      total = 80 + pct * 0.1
+        elif stage == "export":      total = 90 + pct * 0.1
+        elif stage == "translate_pdf": total = pct          # full 0-100
+        elif stage == "done":        total = 100
         self._progressBar.setDoubleValue_(total)
         self._progressBar.displayIfNeeded()
         self._stageLabel.setStringValue_(msg)

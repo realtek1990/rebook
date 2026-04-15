@@ -28,26 +28,106 @@ import java.util.concurrent.atomic.AtomicInteger
 class TtsEngine {
 
     companion object {
+
+        // ── Per-language voice maps ─────────────────────────────────────────
+        val VOICES_BY_LANG: Map<String, LinkedHashMap<String, String>> = mapOf(
+            "pl" to linkedMapOf(
+                "pl-PL-MarekNeural" to "♂ Marek (PL)",
+                "pl-PL-ZofiaNeural" to "♀ Zofia (PL)",
+            ),
+            "en" to linkedMapOf(
+                "en-US-AndrewNeural" to "♂ Andrew (US)",
+                "en-US-JennyNeural"  to "♀ Jenny (US)",
+                "en-GB-RyanNeural"   to "♂ Ryan (GB)",
+            ),
+            "de" to linkedMapOf(
+                "de-DE-ConradNeural" to "♂ Conrad (DE)",
+                "de-DE-KatjaNeural"  to "♀ Katja (DE)",
+            ),
+            "fr" to linkedMapOf(
+                "fr-FR-HenriNeural"  to "♂ Henri (FR)",
+                "fr-FR-DeniseNeural" to "♀ Denise (FR)",
+            ),
+            "es" to linkedMapOf(
+                "es-ES-AlvaroNeural"  to "♂ Álvaro (ES)",
+                "es-ES-ElviraNeural"  to "♀ Elvira (ES)",
+            ),
+            "it" to linkedMapOf(
+                "it-IT-DiegoNeural" to "♂ Diego (IT)",
+                "it-IT-ElsaNeural"  to "♀ Elsa (IT)",
+            ),
+            "pt" to linkedMapOf(
+                "pt-PT-DuarteNeural"   to "♂ Duarte (PT)",
+                "pt-BR-FranciscaNeural" to "♀ Francisca (BR)",
+            ),
+            "uk" to linkedMapOf(
+                "uk-UA-OstapNeural"  to "♂ Ostap (UA)",
+                "uk-UA-PolinaNeural" to "♀ Polina (UA)",
+            ),
+            "cs" to linkedMapOf(
+                "cs-CZ-AntoninNeural" to "♂ Antonín (CZ)",
+                "cs-CZ-VlastaNeural"  to "♀ Vlasta (CZ)",
+            ),
+            "ru" to linkedMapOf(
+                "ru-RU-DmitryNeural"   to "♂ Dmitry (RU)",
+                "ru-RU-SvetlanaNeural" to "♀ Svetlana (RU)",
+            ),
+            "ja" to linkedMapOf(
+                "ja-JP-KeitaNeural"  to "♂ Keita (JP)",
+                "ja-JP-NanamiNeural" to "♀ Nanami (JP)",
+            ),
+        )
+
+        /** Map Polish/English language names → locale code for voicesFor() */
+        private val LANG_TO_CODE = mapOf(
+            "polski" to "pl", "angielski" to "en", "english" to "en",
+            "niemiecki" to "de", "deutsch" to "de", "german" to "de",
+            "francuski" to "fr", "français" to "fr", "french" to "fr",
+            "hiszpański" to "es", "español" to "es", "spanish" to "es",
+            "włoski" to "it", "italiano" to "it", "italian" to "it",
+            "portugalski" to "pt", "português" to "pt",
+            "ukraiński" to "uk", "ukrainian" to "uk",
+            "czeski" to "cs", "czech" to "cs",
+            "rosyjski" to "ru", "russian" to "ru",
+            "japoński" to "ja", "japanese" to "ja",
+        )
+
+        /** Return voices appropriate for [langTo] (falls back to PL). */
+        fun voicesFor(langTo: String): LinkedHashMap<String, String> {
+            val code = LANG_TO_CODE[langTo.lowercase().trim()] ?: "pl"
+            return VOICES_BY_LANG[code] ?: VOICES_BY_LANG["pl"]!!
+        }
+
+        // Legacy flat map — kept for backwards compat (audiobook panel default)
         val VOICES: LinkedHashMap<String, String> = linkedMapOf(
-            "pl-PL-MarekNeural"   to "Marek (PL, Męski)",
-            "pl-PL-ZofiaNeural"   to "Zofia (PL, Żeński)",
-            "en-US-GuyNeural"     to "Guy (EN, Male)",
-            "en-US-JennyNeural"   to "Jenny (EN, Female)",
-            "es-ES-AlvaroNeural"  to "Álvaro (ES, Male)",
-            "es-ES-ElviraNeural"  to "Elvira (ES, Female)",
-            "de-DE-ConradNeural"  to "Conrad (DE, Male)",
-            "fr-FR-HenriNeural"   to "Henri (FR, Male)",
+            "pl-PL-MarekNeural" to "♂ Marek (PL)",
+            "pl-PL-ZofiaNeural" to "♀ Zofia (PL)",
         )
 
         val SAMPLE_TEXTS: Map<String, String> = mapOf(
-            "pl-PL-MarekNeural"  to "Witaj! Jestem Marek, Twój lektor audiobooków.",
-            "pl-PL-ZofiaNeural"  to "Witaj! Jestem Zofia, Twój lektor audiobooków.",
-            "en-US-GuyNeural"    to "Hello! I'm Guy, your audiobook narrator.",
-            "en-US-JennyNeural"  to "Hello! I'm Jenny, your audiobook narrator.",
-            "es-ES-AlvaroNeural" to "¡Hola! Soy Álvaro, tu narrador de audiolibros.",
-            "es-ES-ElviraNeural" to "¡Hola! Soy Elvira, tu narradora de audiolibros.",
-            "de-DE-ConradNeural" to "Hallo! Ich bin Conrad, Ihr Hörbuch-Erzähler.",
-            "fr-FR-HenriNeural"  to "Bonjour! Je suis Henri, votre narrateur.",
+            "pl-PL-MarekNeural"    to "Witaj! Jestem Marek, Twój lektor audiobooków.",
+            "pl-PL-ZofiaNeural"    to "Witaj! Jestem Zofia, Twój lektor audiobooków.",
+            "en-US-AndrewNeural"   to "Hello! I'm Andrew, your audiobook narrator.",
+            "en-US-JennyNeural"    to "Hello! I'm Jenny, your audiobook narrator.",
+            "en-GB-RyanNeural"     to "Hello! I'm Ryan, your audiobook narrator.",
+            "de-DE-ConradNeural"   to "Hallo! Ich bin Conrad, Ihr Hörbuch-Erzähler.",
+            "de-DE-KatjaNeural"    to "Hallo! Ich bin Katja, Ihre Hörbuch-Erzählerin.",
+            "fr-FR-HenriNeural"    to "Bonjour! Je suis Henri, votre narrateur.",
+            "fr-FR-DeniseNeural"   to "Bonjour! Je suis Denise, votre narratrice.",
+            "es-ES-AlvaroNeural"   to "¡Hola! Soy Álvaro, tu narrador de audiolibros.",
+            "es-ES-ElviraNeural"   to "¡Hola! Soy Elvira, tu narradora de audiolibros.",
+            "it-IT-DiegoNeural"    to "Ciao! Sono Diego, il tuo narratore.",
+            "it-IT-ElsaNeural"     to "Ciao! Sono Elsa, la tua narratrice.",
+            "uk-UA-OstapNeural"    to "Привіт! Я Остап, ваш оповідач аудіокниг.",
+            "uk-UA-PolinaNeural"   to "Привіт! Я Поліна, ваша оповідачка аудіокниг.",
+            "cs-CZ-AntoninNeural"  to "Ahoj! Jsem Antonín, váš průvodce audioknihou.",
+            "cs-CZ-VlastaNeural"   to "Ahoj! Jsem Vlasta, vaše průvodkyně audioknihou.",
+            "ru-RU-DmitryNeural"   to "Привет! Я Дмитрий, ваш чтец аудиокниг.",
+            "ru-RU-SvetlanaNeural" to "Привет! Я Светлана, ваша чтица аудиокниг.",
+            "ja-JP-KeitaNeural"    to "こんにちは！私はKeita、あなたのオーディオブックナレーターです。",
+            "ja-JP-NanamiNeural"   to "こんにちは！私はNanami、あなたのオーディオブックナレーターです。",
+            "pt-PT-DuarteNeural"   to "Olá! Sou Duarte, o seu narrador de audiolivros.",
+            "pt-BR-FranciscaNeural" to "Olá! Sou Francisca, sua narradora de audiolivros.",
         )
 
         private const val TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"

@@ -12,7 +12,7 @@ import java.io.File
 object Converter {
 
     enum class OutputFormat(val ext: String) {
-        EPUB("epub"), MARKDOWN("md"), HTML("html")
+        EPUB("epub"), MARKDOWN("md"), HTML("html"), PDF("pdf")
     }
 
     data class ConversionParams(
@@ -20,6 +20,7 @@ object Converter {
         val outputFormat: OutputFormat = OutputFormat.EPUB,
         val useLlm: Boolean = false,
         val translate: Boolean = false,
+        val translatePdf: Boolean = false,   // layout-preserving PDF→PDF translation
         val langFrom: String = "",
         val langTo: String = "polski",
         val verify: Boolean = false,
@@ -40,7 +41,26 @@ object Converter {
     ): String {
         val cacheDir = File(context.cacheDir, "rebook_convert").also { it.mkdirs() }
 
-        // ── Step 1: Copy input to local file ──
+        // ── Layout-preserving PDF translation (separate pipeline) ──
+        if (params.translatePdf || (params.outputFormat == OutputFormat.PDF && params.translate)) {
+            onProgress("translate_pdf", 0, "Przygotowywanie tłumaczenia PDF…")
+            val inputFile = copyUriToFile(context, params.inputUri, cacheDir)
+            val outputName = "${inputFile.nameWithoutExtension}_${params.langTo}.pdf"
+            val outputFile = File(cacheDir, outputName)
+            PdfTranslator.translate(
+                context    = context,
+                inputFile  = inputFile,
+                outputFile = outputFile,
+                config     = config,
+                langFrom   = params.langFrom,
+                langTo     = params.langTo,
+                pageStart  = params.pageStart,
+                pageEnd    = params.pageEnd,
+                onProgress = onProgress,
+            )
+            return outputFile.absolutePath
+        }
+
         onProgress("ocr", 0, "Przygotowywanie pliku...")
         val inputFile = copyUriToFile(context, params.inputUri, cacheDir)
         val inputExt = inputFile.extension.lowercase()

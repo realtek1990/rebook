@@ -271,9 +271,12 @@ class ReBookApp:
         r2.pack(fill="x", pady=2)
         ctk.CTkLabel(r2, text=t("lang_to_label"), width=110,
                      font=ctk.CTkFont(size=11), text_color=("gray30", "gray70")).pack(side="left")
-        self._lang_to = ctk.CTkComboBox(r2, values=LANGUAGES)
+        self._lang_to = ctk.CTkComboBox(r2, values=LANGUAGES,
+                                        command=self._on_lang_to_change)
         self._lang_to.set("polski")
         self._lang_to.pack(side="left", fill="x", expand=True)
+        # Pre-compute voices for default language
+        self._on_lang_to_change("polski")
 
         # Convert + Stop buttons
         btn_frame = ctk.CTkFrame(f, fg_color="transparent")
@@ -315,6 +318,17 @@ class ReBookApp:
                       height=36, fg_color="gray50").pack(side="left", padx=4)
 
     # ── File handling ──
+
+    def _on_lang_to_change(self, lang: str = "polski"):
+        """Update available TTS voices when target language changes."""
+        try:
+            import tts_engine
+            self._current_voices = tts_engine.voices_for(lang)
+        except Exception:
+            self._current_voices = {
+                "pl-PL-MarekNeural": "♂ Marek (PL)",
+                "pl-PL-ZofiaNeural": "♀ Zofia (PL)",
+            }
 
     def _open_file(self):
         from tkinter import filedialog
@@ -574,25 +588,37 @@ class ReBookApp:
                     raise InterruptedError("⛔ Konwersja zatrzymana przez użytkownika")
                 self._on_progress(stage, pct, msg)
 
-            result = converter.convert_file(
-                input_path=path,
-                output_format=fmt,
-                use_llm=use_llm,
-                use_translate=translate,
-                translate_images=translate_images,
-                verify_translation=verify,
-                lang_from=lang_from,
-                lang_to=lang_to,
-                progress_callback=_progress_with_cancel,
-                page_start=page_start,
-                page_end=page_end,
-            )
+            # ── PDF → PDF layout-preserving translation ──────────────────────
+            if fmt == "pdf" and use_llm and translate:
+                result = converter.translate_pdf(
+                    input_path=path,
+                    lang_from=lang_from,
+                    lang_to=lang_to,
+                    page_start=page_start,
+                    page_end=page_end,
+                    progress_callback=_progress_with_cancel,
+                )
+            else:
+                result = converter.convert_file(
+                    input_path=path,
+                    output_format=fmt,
+                    use_llm=use_llm,
+                    use_translate=translate,
+                    translate_images=translate_images,
+                    verify_translation=verify,
+                    lang_from=lang_from,
+                    lang_to=lang_to,
+                    progress_callback=_progress_with_cancel,
+                    page_start=page_start,
+                    page_end=page_end,
+                )
             self._ui_queue.put(("done", result))
         except InterruptedError:
             self._ui_queue.put(("cancelled", None))
         except Exception as e:
             import traceback; traceback.print_exc()
             self._ui_queue.put(("error", str(e)))
+
 
     def _on_progress(self, stage, pct, msg):
         self._ui_queue.put(("progress", {"stage": stage, "pct": pct, "msg": msg}))
@@ -615,12 +641,13 @@ class ReBookApp:
         # Map each stage to a sub-range of the overall 0.0→1.0 progress bar.
         # Stages: ocr(0-35%), correction(35-55%), verification(55-85%), images(85-90%), export(90-100%)
         stage_map = {
-            "ocr":          (0.00, 0.35),
-            "correction":   (0.35, 0.55),
-            "verification": (0.55, 0.85),
-            "images":       (0.85, 0.90),
-            "export":       (0.90, 1.00),
-            "done":         (1.00, 1.00),
+            "ocr":           (0.00, 0.35),
+            "correction":    (0.35, 0.55),
+            "verification":  (0.55, 0.85),
+            "images":        (0.85, 0.90),
+            "export":        (0.90, 1.00),
+            "translate_pdf": (0.00, 1.00),  # layout-preserving PDF translation
+            "done":          (1.00, 1.00),
         }
         if stage not in stage_map:
             # Unknown stage — update label but don't move bar erratically

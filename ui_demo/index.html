@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReBook — UI Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --card: #1e2a4a;
+    --card-hover: #253358;
+    --accent: #6c63ff;
+    --accent2: #ff6584;
+    --accent3: #43e97b;
+    --text: #e8eaf6;
+    --text2: #9fa8da;
+    --text3: #5c6bc0;
+    --border: rgba(108,99,255,0.2);
+    --radius: 16px;
+    --radius-sm: 10px;
+    --shadow: 0 8px 32px rgba(0,0,0,0.4);
+    --transition: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow-x: hidden;
+  }
+
+  /* Animated background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(108,99,255,0.15), transparent),
+                radial-gradient(ellipse 60% 40% at 90% 100%, rgba(67,233,123,0.08), transparent);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app-window {
+    width: 540px;
+    background: var(--surface);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow), 0 0 0 1px rgba(255,255,255,0.03);
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Title bar */
+  .titlebar {
+    height: 44px;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+    user-select: none;
+  }
+
+  .traffic-lights { display: flex; gap: 6px; }
+  .tl { width: 12px; height: 12px; border-radius: 50%; }
+  .tl.close  { background: #ff5f57; }
+  .tl.min    { background: #febc2e; }
+  .tl.max    { background: #28c840; }
+
+  .titlebar-title {
+    flex: 1;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text2);
+    margin-left: -68px;
+  }
+
+  .settings-btn {
+    background: none;
+    border: none;
+    color: var(--text3);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    font-size: 16px;
+    transition: color 0.2s, background 0.2s;
+  }
+  .settings-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+  /* Main content */
+  .content {
+    padding: 24px;
+    min-height: 480px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── STEP INDICATOR ── */
+  .step-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    opacity: 0;
+    transition: opacity 0.3s var(--transition);
+  }
+  .step-indicator.visible { opacity: 1; }
+
+  .step-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text3);
+    transition: all 0.3s var(--transition);
+  }
+  .step-dot.active { background: var(--accent); width: 24px; border-radius: 4px; }
+  .step-dot.done   { background: var(--accent3); }
+
+  /* ── FILE BADGE ── */
+  .file-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(108,99,255,0.1);
+    border: 1px solid rgba(108,99,255,0.25);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: all 0.35s var(--transition);
+  }
+  .file-badge.visible { opacity: 1; transform: translateY(0); }
+
+  .file-icon { font-size: 22px; }
+  .file-info { flex: 1; }
+  .file-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .file-meta { font-size: 11px; color: var(--text2); margin-top: 1px; }
+
+  .change-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text2);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .change-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── SCREENS ── */
+  .screen {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    animation: fadeSlideIn 0.35s var(--transition) both;
+  }
+  .screen.active { display: flex; }
+
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── SCREEN 0: DROP ZONE ── */
+  .drop-zone {
+    flex: 1;
+    border: 2px dashed rgba(108,99,255,0.3);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.3s var(--transition);
+    padding: 40px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(108,99,255,0.05), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(108,99,255,0.06);
+  }
+  .drop-zone:hover::before, .drop-zone.drag-over::before { opacity: 1; }
+
+  .drop-icon {
+    font-size: 56px;
+    filter: drop-shadow(0 4px 16px rgba(108,99,255,0.4));
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-8px); }
+  }
+
+  .drop-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .drop-subtitle { font-size: 13px; color: var(--text2); }
+
+  .format-tags {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+  }
+  .tag.pdf  { background: rgba(255,101,132,0.15); color: #ff6584; border: 1px solid rgba(255,101,132,0.25); }
+  .tag.epub { background: rgba(67,233,123,0.12); color: #43e97b; border: 1px solid rgba(67,233,123,0.22); }
+  .tag.md   { background: rgba(108,99,255,0.15); color: #a78bfa; border: 1px solid rgba(108,99,255,0.25); }
+
+  /* ── SCREEN 1: ACTION CARDS ── */
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 12px;
+  }
+
+  .action-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .action-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--card);
+    border: 1.5px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.25s var(--transition);
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .action-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.04), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .action-card:hover {
+    background: var(--card-hover);
+    border-color: rgba(108,99,255,0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+  .action-card:hover::after { opacity: 1; }
+
+  .action-card.selected {
+    border-color: var(--accent);
+    background: rgba(108,99,255,0.12);
+    box-shadow: 0 0 0 1px rgba(108,99,255,0.3), 0 4px 16px rgba(108,99,255,0.15);
+  }
+
+  .card-icon {
+    font-size: 28px;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+  }
+
+  .card-text { flex: 1; }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .card-desc  { font-size: 12px; color: var(--text2); margin-top: 2px; line-height: 1.4; }
+
+  .card-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+  }
+  .badge-fast  { background: rgba(67,233,123,0.15); color: #43e97b; }
+  .badge-ai    { background: rgba(108,99,255,0.2);  color: #a78bfa; }
+  .badge-new   { background: rgba(255,101,132,0.18); color: #ff6584; }
+  .badge-wip   { background: rgba(255,193,7,0.15);  color: #ffd54f; }
+
+  .card-arrow { color: var(--text3); font-size: 14px; transition: transform 0.2s; }
+  .action-card:hover .card-arrow { transform: translateX(2px); color: var(--text2); }
+
+  /* ── SCREEN 2: OPTIONS ── */
+  .options-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .option-group {
+    background: var(--card);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .option-group-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 10px;
+  }
+
+  .lang-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .lang-select {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .lang-select:focus { outline: none; border-color: var(--accent); }
+
+  .lang-arrow {
+    font-size: 18px;
+    color: var(--text3);
+    flex-shrink: 0;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    cursor: pointer;
+    border-radius: 8px;
+  }
+  .toggle-row:not(:last-child) { border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+  .toggle-label { font-size: 13px; color: var(--text); }
+  .toggle-desc  { font-size: 11px; color: var(--text3); margin-top: 1px; }
+
+  .toggle {
+    width: 36px; height: 20px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 10px;
+    position: relative;
+    transition: background 0.25s;
+    flex-shrink: 0;
+    cursor: pointer;
+    border: none;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    left: 2px; top: 2px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: white;
+    transition: transform 0.25s var(--transition);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle.on::after { transform: translateX(16px); }
+  .toggle.warn.on { background: #f59e0b; }
+
+  .cost-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    background: rgba(245,158,11,0.15);
+    color: #fcd34d;
+    border-radius: 6px;
+    border: 1px solid rgba(245,158,11,0.25);
+    margin-left: 6px;
+  }
+
+  .page-range-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .page-input {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    text-align: center;
+    transition: border-color 0.2s;
+    -moz-appearance: textfield;
+  }
+  .page-input:focus { outline: none; border-color: var(--accent); }
+  .page-input::placeholder { color: var(--text3); }
+  .page-range-sep { color: var(--text3); font-size: 13px; flex-shrink: 0; }
+  .page-range-hint { font-size: 11px; color: var(--text3); margin-top: 6px; }
+
+  .format-chips {
+    display: flex;
+    gap: 6px;
+  }
+
+  .chip {
+    flex: 1;
+    padding: 7px 0;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: rgba(255,255,255,0.03);
+    color: var(--text2);
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+  }
+  .chip:hover { border-color: rgba(108,99,255,0.4); color: var(--text); }
+  .chip.active {
+    border-color: var(--accent);
+    background: rgba(108,99,255,0.15);
+    color: var(--accent);
+  }
+
+  /* ── SCREEN 3: PROGRESS ── */
+  .progress-screen { align-items: center; justify-content: center; gap: 24px; }
+
+  .progress-icon { font-size: 48px; animation: spin-glow 2s linear infinite; }
+  @keyframes spin-glow {
+    0%   { filter: drop-shadow(0 0 8px rgba(108,99,255,0.4)); }
+    50%  { filter: drop-shadow(0 0 20px rgba(108,99,255,0.8)); }
+    100% { filter: drop-shadow(0 0 8px rgba(108,99,255,0.4)); }
+  }
+
+  .progress-label { font-size: 15px; font-weight: 600; }
+  .progress-msg   { font-size: 12px; color: var(--text2); text-align: center; max-width: 380px; }
+
+  .progress-bar-wrap {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border-radius: 8px;
+    height: 8px;
+    overflow: hidden;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #a78bfa);
+    border-radius: 8px;
+    transition: width 0.6s var(--transition);
+    width: 0%;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shimmer 1.5s linear infinite;
+  }
+  @keyframes shimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(200%); }
+  }
+
+  .stage-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .stage-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text3);
+    transition: all 0.3s;
+  }
+  .stage-pill.active { background: rgba(108,99,255,0.2); color: var(--accent); }
+  .stage-pill.done   { background: rgba(67,233,123,0.12); color: var(--accent3); text-decoration: line-through; }
+
+  /* ── SCREEN 4: DONE ── */
+  .done-screen { align-items: center; justify-content: center; gap: 16px; }
+  .done-icon   { font-size: 56px; animation: pop 0.5s var(--transition) both; }
+  @keyframes pop {
+    from { transform: scale(0.5); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+
+  .done-title { font-size: 20px; font-weight: 700; }
+  .done-file  {
+    font-size: 13px; color: var(--text2);
+    background: var(--card);
+    padding: 8px 16px;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  /* ── AUDIOBOOK PANEL ── */
+  .audiobook-panel {
+    margin-top: 16px;
+    background: linear-gradient(135deg, rgba(67,233,123,0.06), rgba(108,99,255,0.06));
+    border: 1px solid rgba(67,233,123,0.2);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.4s var(--transition) 0.3s;
+  }
+  .audiobook-panel.visible { opacity: 1; transform: translateY(0); }
+
+  .ab-title { font-size: 13px; font-weight: 600; color: #43e97b; margin-bottom: 8px; }
+  .ab-row { display: flex; gap: 8px; align-items: center; }
+
+  .voice-select {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(67,233,123,0.2);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    padding: 12px 20px;
+    border-radius: var(--radius-sm);
+    border: none;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--transition);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    color: white;
+    box-shadow: 0 4px 16px rgba(108,99,255,0.4);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(108,99,255,0.5);
+  }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-secondary {
+    background: rgba(255,255,255,0.06);
+    color: var(--text2);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+
+  .btn-green {
+    background: linear-gradient(135deg, #43e97b, #38f9d7);
+    color: #0a2a1a;
+    box-shadow: 0 4px 16px rgba(67,233,123,0.3);
+  }
+  .btn-green:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(67,233,123,0.4); }
+
+  .btn-sm { padding: 8px 14px; font-size: 12px; }
+
+  .btn-row { display: flex; gap: 10px; margin-top: auto; padding-top: 20px; }
+  .btn-row .btn { flex: 1; }
+
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+  /* ── FOOTER ── */
+  .footer { text-align: center; padding-top: 12px; }
+  .footer-note { font-size: 11px; color: var(--text3); }
+
+  /* ── DEMO CONTROLS (outside window) ── */
+  .demo-controls {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 11px;
+    color: var(--text2);
+    z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+  .demo-controls strong { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="app-window">
+  <!-- Title bar -->
+  <div class="titlebar">
+    <div class="traffic-lights">
+      <div class="tl close"></div>
+      <div class="tl min"></div>
+      <div class="tl max"></div>
+    </div>
+    <div class="titlebar-title">ReBook</div>
+    <button class="settings-btn" title="Ustawienia" onclick="openSettings()">⚙️</button>
+  </div>
+
+  <!-- Settings overlay screen -->
+  <div id="settingsScreen" style="display:none;position:absolute;inset:0;background:var(--bg);z-index:100;overflow-y:auto;padding:0;">
+    <div style="padding:20px 24px 0;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,0.07);padding-bottom:14px;">
+      <button onclick="closeSettings()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;">‹ Wstecz</button>
+      <span style="font-weight:600;font-size:15px;">Ustawienia</span>
+    </div>
+    <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px;">
+
+      <!-- LLM Provider -->
+      <div class="option-group">
+        <div class="option-group-title">Dostawca AI (LLM)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;" id="sProviderChips">
+          <button class="chip active" onclick="setChip('sProviderChips',this,'provider')">Gemini</button>
+          <button class="chip" onclick="setChip('sProviderChips',this,'provider')">OpenAI</button>
+          <button class="chip" onclick="setChip('sProviderChips',this,'provider')">Mistral</button>
+          <button class="chip" onclick="setChip('sProviderChips',this,'provider')">NVIDIA</button>
+          <button class="chip" onclick="setChip('sProviderChips',this,'provider')">Anthropic</button>
+        </div>
+      </div>
+
+      <!-- API Key -->
+      <div class="option-group">
+        <div class="option-group-title">Klucz API</div>
+        <input id="sApiKey" type="password" placeholder="Wklej swój klucz API…"
+          style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);
+                 border-radius:10px;padding:10px 14px;color:var(--text);font-size:13px;box-sizing:border-box;margin-top:8px;"/>
+      </div>
+
+      <!-- Model name -->
+      <div class="option-group">
+        <div class="option-group-title">Nazwa modelu</div>
+        <input id="sModelName" type="text" placeholder="np. gemini-3.1-flash-lite, gpt-5.4-mini, mistral-small-4…"
+          style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);
+                 border-radius:10px;padding:10px 14px;color:var(--text);font-size:13px;box-sizing:border-box;margin-top:8px;"/>
+      </div>
+
+      <!-- OCR Provider -->
+      <div class="option-group">
+        <div class="option-group-title">Dostawca OCR</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;" id="sOcrChips">
+          <button class="chip active" onclick="setChip('sOcrChips',this,'ocr')">Gemini Flash Lite ⭐ preferowany</button>
+          <button class="chip" onclick="setChip('sOcrChips',this,'ocr')">Mistral OCR</button>
+          <button class="chip" onclick="setChip('sOcrChips',this,'ocr')">ML Kit (offline)</button>
+        </div>
+      </div>
+
+      <!-- TTS Voice -->
+      <div class="option-group">
+        <div class="option-group-title">Głos TTS (audiobook)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;" id="sTtsChips">
+          <button class="chip active" onclick="setChip('sTtsChips',this,'tts')">pl-PL-MarekNeural</button>
+          <button class="chip" onclick="setChip('sTtsChips',this,'tts')">pl-PL-ZofiaNeural</button>
+          <button class="chip" onclick="setChip('sTtsChips',this,'tts')">en-US-AndrewNeural</button>
+        </div>
+      </div>
+
+      <!-- Default languages -->
+      <div class="option-group">
+        <div class="option-group-title">Domyślne języki</div>
+        <div class="lang-row" style="margin-top:8px;">
+          <select class="lang-select"><option>angielski</option><option>polski</option><option>niemiecki</option><option>francuski</option></select>
+          <span style="color:var(--subtle);font-size:18px;">→</span>
+          <select class="lang-select"><option>polski</option><option>angielski</option><option>niemiecki</option><option>francuski</option></select>
+        </div>
+      </div>
+
+      <!-- Save button -->
+      <button onclick="closeSettings()" style="background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:600;cursor:pointer;width:100%;">Zapisz ustawienia</button>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="content">
+
+    <!-- Step indicator (hidden on screen 0) -->
+    <div class="step-indicator" id="stepIndicator">
+      <div class="step-dot" id="dot0"></div>
+      <div class="step-dot" id="dot1"></div>
+      <div class="step-dot" id="dot2"></div>
+      <div class="step-dot" id="dot3"></div>
+    </div>
+
+    <!-- File badge (shown after step 0) -->
+    <div class="file-badge" id="fileBadge">
+      <div class="file-icon" id="fileIcon">📄</div>
+      <div class="file-info">
+        <div class="file-name" id="fileName">-</div>
+        <div class="file-meta" id="fileMeta">-</div>
+      </div>
+      <button class="change-btn" onclick="goToScreen(0)">Zmień plik</button>
+    </div>
+
+    <!-- ══ SCREEN 0: DROP ZONE ══ -->
+    <div class="screen active" id="screen0">
+      <div class="drop-zone" id="dropZone" onclick="simulateDrop()">
+        <div class="drop-icon">📥</div>
+        <div class="drop-title">Przeciągnij plik tutaj</div>
+        <div class="drop-subtitle">lub kliknij, aby wybrać</div>
+        <div class="format-tags">
+          <span class="tag pdf">PDF</span>
+          <span class="tag epub">EPUB</span>
+          <span class="tag md">Markdown</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ SCREEN 1: ACTION SELECTION ══ -->
+    <div class="screen" id="screen1">
+      <div class="section-label" id="actionLabel">Co chcesz zrobić?</div>
+      <div class="action-cards" id="actionCards">
+        <!-- populated by JS -->
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goToScreen(0)">← Zmień plik</button>
+      </div>
+    </div>
+
+    <!-- ══ SCREEN 2: OPTIONS ══ -->
+    <div class="screen" id="screen2">
+      <div class="section-label">Opcje</div>
+      <div class="options-panel" id="optionsPanel">
+        <!-- populated by JS -->
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goToScreen(1)">← Wróć</button>
+        <button class="btn btn-primary" onclick="startProcessing()" id="startBtn">🚀 Uruchom</button>
+      </div>
+    </div>
+
+    <!-- ══ SCREEN 3: PROGRESS ══ -->
+    <div class="screen progress-screen" id="screen3">
+      <div class="progress-icon">⚙️</div>
+      <div class="progress-label" id="progressLabel">Przetwarzam...</div>
+      <div class="progress-bar-wrap" style="width:100%">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+      <div class="stage-pills" id="stagePills"></div>
+      <div class="progress-msg" id="progressMsg">Inicjalizacja...</div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="cancelProcessing()">⏹ Anuluj</button>
+    </div>
+
+    <!-- ══ SCREEN 4: DONE ══ -->
+    <div class="screen done-screen" id="screen4">
+      <div class="done-icon">✅</div>
+      <div class="done-title">Gotowe!</div>
+      <div class="done-file" id="doneFile">output.epub</div>
+
+      <div style="display:flex;gap:10px;width:100%">
+        <button class="btn btn-green btn-sm" style="flex:1" onclick="alert('Otwieranie pliku...')">📂 Otwórz plik</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="goToScreen(0)">+ Nowy plik</button>
+      </div>
+
+      <!-- Audiobook panel appears after completion -->
+      <div class="audiobook-panel" id="audiobookPanel">
+        <div class="ab-title">🎧 Wygenerować audiobooka z tego pliku?</div>
+        <div class="ab-row">
+          <select class="voice-select">
+            <option>Marek (PL, Męski)</option>
+            <option>Barbara (PL, Żeński)</option>
+            <option>Joanna (PL, Neural)</option>
+          </select>
+          <button class="btn btn-green btn-sm" onclick="alert('Generowanie audiobooka...')">🎧 Generuj</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /app-window -->
+
+<div class="demo-controls">
+  <strong>Demo:</strong> Kliknij strefę upuszczania &nbsp;|&nbsp;
+  <strong>Format:</strong>
+  <button onclick="setFormat('pdf')"  style="background:rgba(255,101,132,0.2);border:none;color:#ff6584;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">PDF</button>
+  <button onclick="setFormat('epub')" style="background:rgba(67,233,123,0.15);border:none;color:#43e97b;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">EPUB</button>
+  <button onclick="setFormat('md')"   style="background:rgba(108,99,255,0.2);border:none;color:#a78bfa;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">MD</button>
+</div>
+
+<script>
+  let currentFormat = 'pdf';
+  let currentAction = null;
+  let selectedFormat = 'epub';
+  let _progressInterval = null;
+
+  function cancelProcessing() {
+    clearInterval(_progressInterval);
+    _progressInterval = null;
+    goToScreen(2);  // back to options
+  }
+
+  const FILES = {
+    pdf:  { name: 'DaVinci_Resolve_18.pdf', meta: 'PDF • 4 234 strony • 48 MB', icon: '📕' },
+    epub: { name: 'Dune_Original.epub',      meta: 'EPUB • 512 stron • 2.1 MB', icon: '📗' },
+    md:   { name: 'README.md',               meta: 'Markdown • 1 strona • 24 KB', icon: '📘' },
+  };
+
+  const ACTIONS = {
+    pdf: [
+      {
+        id: 'convert',
+        icon: '📖', title: 'Zamień na eBooka',
+        desc: 'OCR + konwersja do EPUB/HTML/MD. Używa Gemini do rozpoznania tekstu.',
+        badge: 'OCR', badgeClass: 'badge-fast',
+        stages: ['OCR', 'Eksport'],
+        hasFormat: true, hasPageRange: true, hasCorrection: true,
+      },
+      {
+        id: 'translate_epub',
+        icon: '🌐', title: 'Przetłumacz i zamień na eBooka',
+        desc: 'OCR + tłumaczenie AI w jednym kroku → EPUB.',
+        badge: 'AI', badgeClass: 'badge-ai',
+        stages: ['OCR', 'Tłumaczenie', 'Kontrola jakości', 'Eksport'],
+        hasLang: true, hasVerify: true, hasFormat: true, hasPageRange: true,
+      },
+      {
+        id: 'translate_pdf',
+        icon: '📄', title: 'Przetłumacz PDF',
+        desc: 'Zachowuje oryginalny układ, czcionki i grafikę oryginału. Wynik to PDF po polsku.',
+        badge: 'NOWE', badgeClass: 'badge-new',
+        stages: ['Analiza układu', 'Tłumaczenie blok po bloku', 'Rekonstrukcja PDF'],
+        hasLang: true, hasPageRange: true,
+      },
+      {
+        id: 'audiobook',
+        icon: '🎧', title: 'Wygeneruj Audiobooka',
+        desc: 'OCR → synteza mowy TTS. Wybierz głos i język.',
+        badge: 'Nowe', badgeClass: 'badge-new',
+        stages: ['OCR', 'TTS roz. 1', 'TTS roz. 2', 'TTS roz. 3'],
+        hasVoice: true, hasPageRange: true,
+      },
+      {
+        id: 'full_pipeline',
+        icon: '✨', title: 'Przetłumacz → eBook → Audiobook',
+        desc: 'Pełny pipeline: OCR + tłumaczenie + EPUB + synteza mowy w jednym.',
+        badge: 'All-in-one', badgeClass: 'badge-ai',
+        stages: ['OCR', 'Tłumaczenie', 'Eksport EPUB', 'TTS roz. 1', 'TTS roz. 2'],
+        hasLang: true, hasVerify: true, hasVoice: true, hasPageRange: true,
+      },
+    ],
+    epub: [
+      {
+        id: 'translate_epub',
+        icon: '🌐', title: 'Przetłumacz EPUB',
+        desc: 'Zachowuje rozdziały, okładkę i ilustracje.',
+        badge: 'AI', badgeClass: 'badge-ai',
+        stages: ['Ekstrakcja', 'Tłumaczenie', 'Kontrola jakości', 'Eksport'],
+        hasLang: true, hasVerify: true,
+      },
+      {
+        id: 'audiobook',
+        icon: '🎧', title: 'Zamień na Audiobooka',
+        desc: 'Synteza mowy z EPUB. Wybierz głos TTS.',
+        badge: 'Nowe', badgeClass: 'badge-new',
+        stages: ['Ekstrakcja', 'TTS rozdział po rozdziale'],
+        hasVoice: true,
+      },
+    ],
+    md: [
+      {
+        id: 'convert',
+        icon: '📖', title: 'Zamień na eBooka',
+        desc: 'Markdown → EPUB/HTML/MD. Natychmiastowo, bez AI.',
+        badge: 'Szybko', badgeClass: 'badge-fast',
+        stages: ['Parsowanie', 'Eksport'],
+        hasFormat: true,
+      },
+      {
+        id: 'translate_epub',
+        icon: '🌐', title: 'Przetłumacz i zamień na eBooka',
+        desc: 'Tłumaczenie AI + konwersja do EPUB z zachowaniem formatowania.',
+        badge: 'AI', badgeClass: 'badge-ai',
+        stages: ['Tłumaczenie', 'Kontrola jakości', 'Eksport'],
+        hasLang: true, hasVerify: true, hasFormat: true,
+      },
+      {
+        id: 'audiobook',
+        icon: '🎧', title: 'Zamień na Audiobooka',
+        desc: 'Synteza mowy z Markdown. Szybkie wejście dla krótkich tekstów.',
+        badge: 'Nowe', badgeClass: 'badge-new',
+        stages: ['Parsowanie', 'TTS — rozdział 1', 'TTS — rozdział 2'],
+        hasVoice: true,
+      },
+    ],
+  };
+
+  // State
+  function setFormat(fmt) {
+    currentFormat = fmt;
+    if (document.getElementById('screen0').classList.contains('active')) {
+      // still on welcome — just update format for next click
+    } else {
+      // already past drop — update badge and actions
+      updateFileBadge();
+      renderActionCards();
+    }
+  }
+
+  function updateFileBadge() {
+    const f = FILES[currentFormat];
+    document.getElementById('fileIcon').textContent = f.icon;
+    document.getElementById('fileName').textContent = f.name;
+    document.getElementById('fileMeta').textContent = f.meta;
+  }
+
+  function goToScreen(n) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen' + n).classList.add('active');
+
+    // Step indicator
+    const indicator = document.getElementById('stepIndicator');
+    indicator.classList.toggle('visible', n > 0);
+
+    // File badge
+    const badge = document.getElementById('fileBadge');
+    badge.classList.toggle('visible', n > 0 && n < 4);
+
+    // Dots
+    for (let i = 0; i < 4; i++) {
+      const dot = document.getElementById('dot' + i);
+      dot.className = 'step-dot' + (i < n ? ' done' : i === n ? ' active' : '');
+    }
+  }
+
+  function simulateDrop() {
+    const dz = document.getElementById('dropZone');
+    dz.classList.add('drag-over');
+    setTimeout(() => {
+      dz.classList.remove('drag-over');
+      updateFileBadge();
+      renderActionCards();
+      goToScreen(1);
+    }, 400);
+  }
+
+  function renderActionCards() {
+    const actions = ACTIONS[currentFormat] || [];
+    const container = document.getElementById('actionCards');
+    container.innerHTML = '';
+
+    actions.forEach(action => {
+      const el = document.createElement('button');
+      el.className = 'action-card' + (action.disabled ? '' : '');
+      if (action.disabled) el.style.opacity = '0.5';
+      el.innerHTML = `
+        <div class="card-icon">${action.icon}</div>
+        <div class="card-text">
+          <div class="card-title">${action.title}</div>
+          <div class="card-desc">${action.desc}</div>
+        </div>
+        <span class="card-badge ${action.badgeClass}">${action.badge}</span>
+        <span class="card-arrow">›</span>
+      `;
+      if (!action.disabled) {
+        el.onclick = () => selectAction(action);
+      }
+      container.appendChild(el);
+    });
+  }
+
+  function selectAction(action) {
+    // highlight
+    document.querySelectorAll('.action-card').forEach(c => c.classList.remove('selected'));
+    event.currentTarget.classList.add('selected');
+
+    currentAction = action;
+    setTimeout(() => {
+      renderOptions(action);
+      goToScreen(2);
+    }, 150);
+  }
+
+  // State for toggles
+  const toggleState = { verify: false, images: false, voice: false };
+
+  function renderOptions(action) {
+    const panel = document.getElementById('optionsPanel');
+    panel.innerHTML = '';
+
+    // Page range (PDF only)
+    if (action.hasPageRange) {
+      const g = document.createElement('div');
+      g.className = 'option-group';
+      g.innerHTML = `
+        <div class="option-group-title">Zakres stron PDF</div>
+        <div class="page-range-row">
+          <input class="page-input" type="number" id="pageFrom" min="1" placeholder="od (1)" />
+          <span class="page-range-sep">—</span>
+          <input class="page-input" type="number" id="pageTo" min="1" placeholder="do (koniec)" />
+        </div>
+        <div class="page-range-hint">Zostaw puste = cały dokument (4 234 stron)</div>
+      `;
+      panel.appendChild(g);
+    }
+
+    // Language selector
+    if (action.hasLang) {
+      const g = document.createElement('div');
+      g.className = 'option-group';
+      g.innerHTML = `
+        <div class="option-group-title">Języki</div>
+        <div class="lang-row">
+          <select class="lang-select" id="langFrom">
+            <option>Angielski</option><option>Niemiecki</option>
+            <option>Francuski</option><option>Hiszpański</option>
+            <option>Włoski</option><option>Rosyjski</option><option>Japoński</option>
+          </select>
+          <span class="lang-arrow">→</span>
+          <select class="lang-select" id="langTo" onchange="onLangToChange(this.value)">
+            <option selected>Polski</option><option>Angielski</option>
+            <option>Ukraiński</option><option>Czeski</option>
+            <option>Niemiecki</option><option>Francuski</option><option>Hiszpański</option>
+          </select>
+        </div>
+      `;
+      panel.appendChild(g);
+    }
+
+    // Output format chips
+    if (action.hasFormat) {
+      const g = document.createElement('div');
+      g.className = 'option-group';
+      g.innerHTML = `
+        <div class="option-group-title">Format wyjściowy</div>
+        <div class="format-chips">
+          <button class="chip active" onclick="selectChip(this,'epub')">EPUB</button>
+          <button class="chip" onclick="selectChip(this,'html')">HTML</button>
+          <button class="chip" onclick="selectChip(this,'md')">Markdown</button>
+        </div>
+      `;
+      panel.appendChild(g);
+    }
+
+    // Voice selector — dynamic per language
+    if (action.hasVoice) {
+      const g = document.createElement('div');
+      g.className = 'option-group';
+      const langTo = document.getElementById('langTo')?.value || 'Polski';
+      g.innerHTML = `
+        <div class="option-group-title">Głos TTS</div>
+        <div class="format-chips" id="voiceChips">
+          ${renderVoicesFor(langTo)}
+        </div>
+        <div class="page-range-hint" style="margin-top:6px">✔ Dobór głosu dostosowuje się do wybranego języka</div>
+      `;
+      panel.appendChild(g);
+    }
+
+    // Toggles: correction (convert-only) + images + verify
+    if (action.hasCorrection || action.hasVerify || action.hasLang) {
+      const g = document.createElement('div');
+      g.className = 'option-group';
+      let rows = '';
+
+      if (action.hasCorrection) {
+        rows += `
+          <div class="toggle-row" onclick="toggleOpt(this,'correct')">
+            <div>
+              <div class="toggle-label">🔧 Korekta AI (bez tłumaczenia)</div>
+              <div class="toggle-desc">Naprawia błędy OCR, nie zmienia języka</div>
+            </div>
+            <button class="toggle" id="toggle-correct"></button>
+          </div>
+        `;
+      }
+
+      if (action.hasLang) {
+        rows += `
+          <div class="toggle-row" onclick="toggleOpt(this,'images')">
+            <div>
+              <div class="toggle-label">🖼 Tłumacz ilustracje z tekstem</div>
+              <div class="toggle-desc">Rozpoznaje i tłumaczy tekst w obrazkach</div>
+            </div>
+            <button class="toggle" id="toggle-images"></button>
+          </div>
+        `;
+      }
+
+      if (action.hasVerify) {
+        rows += `
+          <div class="toggle-row" onclick="toggleOpt(this,'verify')">
+            <div>
+              <div class="toggle-label">🔍 Weryfikacja LLM <span class="cost-badge">+ koszt</span></div>
+              <div class="toggle-desc">Dodatkowy pass AI sprawdzający jakość tłumaczenia</div>
+            </div>
+            <button class="toggle warn" id="toggle-verify"></button>
+          </div>
+        `;
+      }
+
+      if (rows) {
+        g.innerHTML = `<div class="option-group-title">Opcje dodatkowe</div>` + rows;
+        panel.appendChild(g);
+      }
+    }
+  }
+
+  function selectChip(el, fmt) {
+    el.closest('.format-chips').querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    selectedFormat = fmt;
+  }
+
+  function toggleOpt(row, key) {
+    toggleState[key] = !toggleState[key];
+    const btn = document.getElementById('toggle-' + key);
+    if (btn) btn.classList.toggle('on', toggleState[key]);
+  }
+
+  const STAGE_SEQUENCES = {
+    pdf_convert:        ['OCR', 'Eksport'],
+    pdf_translate_epub: ['OCR', 'Tłumaczenie', 'Kontrola jakości', 'Eksport'],
+    epub_translate:     ['Ekstrakcja', 'Tłumaczenie', 'Kontrola jakości', 'Eksport'],
+    epub_audiobook:     ['Ekstrakcja', 'TTS — rozdział 1', 'TTS — rozdział 2', 'TTS — rozdział 3', 'Gotowe'],
+    md_convert:         ['Parsowanie', 'Eksport'],
+    md_translate:       ['Tłumaczenie', 'Kontrola jakości', 'Eksport'],
+  };
+
+  const MESSAGES = [
+    'Analiza struktury dokumentu...', 'Rozpoznawanie stron (OCR)...',
+    'Tłumaczenie rozdziałów...', '🔬 Kontrola jakości — segment 12/48...',
+    '⏭️ Wznowienie z checkpointu (32/48)...', 'Składanie EPUB...',
+    '✅ Zapisano segment 45/48', 'Finalizacja...',
+  ];
+
+  function startProcessing() {
+    const stages = currentAction?.stages || ['Przetwarzanie', 'Eksport'];
+    goToScreen(3);
+
+    const pillsEl = document.getElementById('stagePills');
+    pillsEl.innerHTML = stages.map((s, i) =>
+      `<span class="stage-pill" id="pill-${i}">${s}</span>`
+    ).join('');
+
+    let pct = 0;
+    let stageIdx = 0;
+    let msgIdx = 0;
+    const perStage = 96 / stages.length;
+
+    const bar = document.getElementById('progressBar');
+    const lbl = document.getElementById('progressLabel');
+    const msg = document.getElementById('progressMsg');
+
+    // Activate first stage
+    document.getElementById('pill-0')?.classList.add('active');
+
+    _progressInterval = setInterval(() => {
+      pct += Math.random() * 4 + 1;
+      if (pct > 98) pct = 98;
+      bar.style.width = pct + '%';
+
+      // Advance stage
+      const expectedStage = Math.min(Math.floor(pct / perStage), stages.length - 1);
+      if (expectedStage > stageIdx) {
+        document.getElementById('pill-' + stageIdx)?.classList.replace('active', 'done');
+        stageIdx = expectedStage;
+        document.getElementById('pill-' + stageIdx)?.classList.add('active');
+        lbl.textContent = stages[stageIdx] + '...';
+      }
+
+      // Cycle messages
+      if (Math.random() > 0.7) {
+        msgIdx = (msgIdx + 1) % MESSAGES.length;
+        msg.textContent = MESSAGES[msgIdx];
+      }
+
+      if (pct >= 98) {
+        clearInterval(_progressInterval);
+        setTimeout(() => {
+          bar.style.width = '100%';
+          // Mark all done
+          stages.forEach((_, i) => {
+            const p = document.getElementById('pill-' + i);
+            p?.classList.remove('active');
+            p?.classList.add('done');
+          });
+          setTimeout(() => showDone(), 600);
+        }, 400);
+      }
+    }, 300);
+  }
+
+  function showDone() {
+    const file = FILES[currentFormat];
+    const ext = selectedFormat || 'epub';
+    const stem = file.name.replace(/\.[^.]+$/, '');
+    document.getElementById('doneFile').textContent = `${stem}_pol.${ext}`;
+
+    goToScreen(4);
+
+    setTimeout(() => {
+      document.getElementById('audiobookPanel').classList.add('visible');
+    }, 300);
+  }
+
+  // Keyboard shortcut: Enter to proceed, Escape to go back
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const s0 = document.getElementById('screen0');
+      const s1 = document.getElementById('screen1');
+      const s2 = document.getElementById('screen2');
+      if (s0.classList.contains('active')) simulateDrop();
+    }
+    if (e.key === 'Escape') {
+      const s2 = document.getElementById('screen2');
+      const s4 = document.getElementById('screen4');
+      if (s2.classList.contains('active')) goToScreen(1);
+      if (s4.classList.contains('active')) goToScreen(0);
+    }
+  });
+
+  function openSettings() {
+    document.getElementById('settingsScreen').style.display = 'block';
+  }
+  function closeSettings() {
+    document.getElementById('settingsScreen').style.display = 'none';
+  }
+  function setChip(groupId, btn, key) {
+    document.querySelectorAll('#' + groupId + ' .chip').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  // ── TTS voices per language ──────────────────────────────────────────────
+  const VOICES_BY_LANG = {
+    'Polski':     [['pl-PL-MarekNeural','Marek','♂'],['pl-PL-ZofiaNeural','Zofia','♀']],
+    'Angielski':  [['en-US-AndrewNeural','Andrew','♂'],['en-US-JennyNeural','Jenny','♀'],['en-GB-RyanNeural','Ryan (GB)','♂']],
+    'Niemiecki':  [['de-DE-ConradNeural','Conrad','♂'],['de-DE-KatjaNeural','Katja','♀']],
+    'Francuski':  [['fr-FR-HenriNeural','Henri','♂'],['fr-FR-DeniseNeural','Denise','♀']],
+    'Hiszpański': [['es-ES-AlvaroNeural','Álvaro','♂'],['es-ES-ElviraNeural','Elvira','♀']],
+    'Włoski':     [['it-IT-DiegoNeural','Diego','♂'],['it-IT-ElsaNeural','Elsa','♀']],
+    'Ukraiński':  [['uk-UA-OstapNeural','Ostap','♂'],['uk-UA-PolinaNeural','Polina','♀']],
+    'Czeski':     [['cs-CZ-AntoninNeural','Antonín','♂'],['cs-CZ-VlastaNeural','Vlasta','♀']],
+    'Rosyjski':   [['ru-RU-DmitryNeural','Dmytry','♂'],['ru-RU-SvetlanaNeural','Svetlana','♀']],
+    'Japoński':   [['ja-JP-KeitaNeural','Keita','♂'],['ja-JP-NanamiNeural','Nanami','♀']],
+  };
+
+  function renderVoicesFor(lang) {
+    const voices = VOICES_BY_LANG[lang] || VOICES_BY_LANG['Polski'];
+    return voices.map((v, i) =>
+      `<button class="chip ${i===0?'active':''}" onclick="selectChip(this,'${v[0]}')">${v[2]} ${v[1]}</button>`
+    ).join('');
+  }
+
+  function onLangToChange(lang) {
+    const chips = document.getElementById('voiceChips');
+    if (chips) chips.innerHTML = renderVoicesFor(lang);
+  }
+</script>
+</body>
+</html>

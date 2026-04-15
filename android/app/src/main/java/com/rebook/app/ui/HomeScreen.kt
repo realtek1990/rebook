@@ -714,11 +714,23 @@ fun HomeScreen(
                     }
                     Spacer(Modifier.height(8.dp))
 
-                        // Voice selector
-                        val voiceKeys = TtsEngine.VOICES.keys.toList()
-                        val voiceLabels = TtsEngine.VOICES.values.toList()
+                        // Voice selector — dynamic per output language
+                        val currentVoices = remember(state.langTo) {
+                            TtsEngine.voicesFor(state.langTo)
+                        }
+                        val voiceKeys   = currentVoices.keys.toList()
+                        val voiceLabels = currentVoices.values.toList()
+
+                        // Auto-select first voice when language changes
+                        LaunchedEffect(state.langTo) {
+                            val firstKey = voiceKeys.firstOrNull()
+                            if (firstKey != null && state.ttsVoice !in currentVoices) {
+                                viewModel.setTtsVoice(firstKey)
+                            }
+                        }
+
                         var voiceExpanded by remember { mutableStateOf(false) }
-                        val selectedLabel = TtsEngine.VOICES[state.ttsVoice] ?: voiceLabels.first()
+                        val selectedLabel = currentVoices[state.ttsVoice] ?: voiceLabels.firstOrNull() ?: ""
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

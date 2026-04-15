@@ -38,6 +38,7 @@ android/build/
 *.aab
 dist/
 build/
+!linux/dist/
 # Test files - not for repo
 ocr_benchmark.py
 ab_test.py
