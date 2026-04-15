@@ -35,6 +35,14 @@ object AiProvider {
     )
 
     val PROVIDERS = listOf(
+        ProviderInfo("Google Gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta/openai/",
+            listOf("gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro")),
+        ProviderInfo("OpenAI", "openai", "https://api.openai.com/v1/",
+            listOf("gpt-5.4-mini", "gpt-5.3-instant", "gpt-5.4-pro", "gpt-5.4-thinking", "o3-mini")),
+        ProviderInfo("Anthropic", "anthropic", "https://api.anthropic.com/v1/",
+            listOf("claude-sonnet-4.6", "claude-opus-4.6", "claude-3-5-haiku-latest")),
+        ProviderInfo("Mistral AI", "mistral", "https://api.mistral.ai/v1/",
+            listOf("mistral-small-4", "mistral-large-latest", "pixtral-large-latest", "ministral-8b-latest")),
         ProviderInfo("NVIDIA NIM", "nvidia", "https://integrate.api.nvidia.com/v1/",
             listOf(
                 "mistralai/mistral-small-4-119b-2603",
@@ -43,14 +51,6 @@ object AiProvider {
                 "meta/llama-3.3-70b-instruct",
                 "google/gemma-3-27b-it",
             )),
-        ProviderInfo("Google Gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta/openai/",
-            listOf("gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro")),
-        ProviderInfo("OpenAI", "openai", "https://api.openai.com/v1/",
-            listOf("gpt-5-preview", "gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "o1-mini")),
-        ProviderInfo("Anthropic", "anthropic", "https://api.anthropic.com/v1/",
-            listOf("claude-4.6-opus", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest")),
-        ProviderInfo("Mistral AI", "mistral", "https://api.mistral.ai/v1/",
-            listOf("mistral-large-latest", "mistral-medium", "pixtral-large-latest", "ministral-8b-latest", "mistral-small-latest")),
         ProviderInfo("Groq", "groq", "https://api.groq.com/openai/v1/",
             listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768")),
         ProviderInfo("Zhipu AI", "zhipu", "https://open.bigmodel.cn/api/paas/v4/",

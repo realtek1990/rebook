@@ -41,6 +41,10 @@ FORMATS = ["EPUB", "Markdown", "HTML"]
 FORMAT_KEYS = ["epub", "md", "html"]
 
 MODELS = {
+    "gemini": ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
+    "openai": ["gpt-5.4-mini", "gpt-5.3-instant", "gpt-5.4-pro", "gpt-5.4-thinking", "o3-mini"],
+    "anthropic": ["claude-sonnet-4.6", "claude-opus-4.6", "claude-3-5-haiku-latest"],
+    "mistral": ["mistral-small-4", "mistral-large-latest", "pixtral-large-latest", "ministral-8b-latest"],
     "nvidia": [
         "mistralai/mistral-small-4-119b-2603",
         "qwen/qwen3.5-122b-a10b",
@@ -48,12 +52,8 @@ MODELS = {
         "meta/llama-3.3-70b-instruct",
         "google/gemma-3-27b-it",
     ],
-    "mistral": ["mistral-large-latest", "mistral-medium", "pixtral-large-latest", "ministral-8b-latest", "ministral-3b-latest", "mistral-small-latest"],
     "moonshot": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
     "zhipu": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
-    "openai": ["gpt-5-preview", "gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "o1-mini"],
-    "anthropic": ["claude-4.6-opus", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-    "gemini": ["gemma-4-26b-a4b-it", "gemma-4-31b-it", "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"],
     "zhipuai": ["glm-4-plus", "glm-4-flashx", "glm-4-long", "glm-4-airx", "glm-4-flash"],
     "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"]
 }

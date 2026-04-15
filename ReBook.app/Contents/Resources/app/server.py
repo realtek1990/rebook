@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 
 import corrector
+import pdf_translator
 
 app = FastAPI(title="PDF to EPUB", version="2.0")
 
@@ -109,7 +110,7 @@ async def convert(
     pdf: UploadFile = File(...),
     output_format: str = Form("epub"),
     use_llm: bool = Form(False),
-    llm_model: str = Form("gpt-4o-mini"),
+    llm_model: str = Form("gemini-3.1-flash-lite-preview"),
     use_translate: bool = Form(False),
     lang_from: str = Form(""),
     lang_to: str = Form("polski"),
@@ -125,6 +126,10 @@ async def convert(
         content = await pdf.read()
         f.write(content)
     
+    # For pdf_translated mode, force use_translate flag
+    if output_format == "pdf_translated":
+        use_translate = True
+
     jobs[job_id] = {
         "id": job_id,
         "status": "queued",
@@ -468,6 +473,61 @@ async def run_conversion(job_id: str):
         job["progress"] = 90
         fmt = job["output_format"]
         basename = pdf_path.stem
+
+        # ── PDF→PDF translation (preserves layout) ────────────────────────────
+        if fmt == "pdf_translated":
+            job["message"] = "Tłumaczenie PDF z zachowaniem składu..."
+            log("Uruchamiam PDF→PDF translator (PyMuPDF + AI)...")
+            output_path = job_dir / f"{basename}_pl.pdf"
+
+            # Load provider config
+            try:
+                with open(CONFIG_FILE, "r") as _f:
+                    _cfg = json.load(_f)
+            except Exception:
+                _cfg = {}
+
+            _provider = "mistral"
+            _api_key  = _cfg.get("ocr_api_key", "") or _cfg.get("api_key", "")
+            _model    = "mistral-small-latest"
+
+            # Detect provider from model name if set
+            _llm_model = job.get("llm_model", "")
+            if "gemini" in _llm_model.lower():
+                _provider = "gemini"
+                _api_key  = _cfg.get("api_key", "")
+                _model    = _llm_model or "gemini-3.1-flash-lite-preview"
+            elif _llm_model and "mistral" not in _llm_model.lower():
+                # Unknown model — default Mistral
+                pass
+
+            def _pdf_progress(stage, pct, msg):
+                job["progress"] = 5 + int(pct * 0.9)
+                job["message"]  = msg
+                log(msg)
+
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: pdf_translator.translate_pdf(
+                    str(pdf_path),
+                    str(output_path),
+                    lang_to=job.get("lang_to", "polski"),
+                    provider=_provider,
+                    api_key=_api_key,
+                    model=_model,
+                    workers=6,
+                    progress_callback=_pdf_progress,
+                ),
+            )
+
+            job["output_path"] = str(output_path)
+            job["stage"]       = "done"
+            job["status"]      = "done"
+            job["progress"]    = 100
+            job["message"]     = f"Gotowe! → {output_path.name}"
+            log(f"PDF→PDF gotowe: {output_path.name} ({output_path.stat().st_size // 1024} KB)")
+            return  # skip remaining epub/html/md stages
         
         if fmt == "epub":
             job["message"] = "Tworzenie EPUB..."

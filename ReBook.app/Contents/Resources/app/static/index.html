@@ -721,6 +721,7 @@ body::before {
         <button class="format-btn active" data-format="epub">EPUB</button>
         <button class="format-btn" data-format="md">Markdown</button>
         <button class="format-btn" data-format="html">HTML</button>
+        <button class="format-btn" data-format="pdf_translated" title="Tłumaczy PDF zachowując oryginalny skład, obrazy i pozycje elementów">📄 PDF (skład)</button>
       </div>
     </div>
     <div class="option-row">
@@ -746,6 +747,10 @@ body::before {
         <label style="font-size: 0.8em; color: var(--text-dim); display:block; margin-bottom:4px;">Język docelowy (wymagane):</label>
         <input type="text" id="langTo" value="polski" style="width: 100%; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); padding: 8px; font-family: inherit;">
       </div>
+    </div>
+    <!-- PDF layout mode info banner (shown only when pdf_translated selected) -->
+    <div id="pdfModeInfo" style="display:none; margin-bottom:14px; background:rgba(99,102,241,0.1); padding:12px; border-radius:8px; border:1px solid rgba(99,102,241,0.3); font-size:0.85em; color:var(--text-dim);">
+      🖼️ <strong>Tryb PDF z zachowaniem składu</strong> — obrazy, tabele i pozycje elementów zostaną zachowane. Wymaga klucza Mistral AI (lub Gemini) w Ustawieniach.
     </div>
   </div>
 
@@ -805,6 +810,15 @@ document.querySelectorAll('.format-btn').forEach(btn => {
     document.querySelectorAll('.format-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     selectedFormat = btn.dataset.format;
+
+    const isPdfMode = selectedFormat === 'pdf_translated';
+    document.getElementById('pdfModeInfo').style.display = isPdfMode ? 'block' : 'none';
+    // In PDF mode, force translate ON and show language options
+    if (isPdfMode) {
+      document.getElementById('useTranslate').checked = true;
+      document.getElementById('translateOptions').style.display = 'block';
+      document.getElementById('useLlm').checked = true;
+    }
   });
 });
 
@@ -898,9 +912,10 @@ function updateProgress(data) {
   
   // Update stage indicators
   const stageMap = {
-    'ocr': { icon: 'stageOcrIcon', detail: 'stageOcrDetail' },
-    'correction': { icon: 'stageCorrectionIcon', detail: 'stageCorrectionDetail' },
-    'export': { icon: 'stageExportIcon', detail: 'stageExportDetail' },
+    'ocr':          { icon: 'stageOcrIcon',        detail: 'stageOcrDetail' },
+    'translate_pdf':{ icon: 'stageCorrectionIcon',  detail: 'stageCorrectionDetail' },
+    'correction':   { icon: 'stageCorrectionIcon',  detail: 'stageCorrectionDetail' },
+    'export':       { icon: 'stageExportIcon',      detail: 'stageExportDetail' },
   };
   
   // Mark completed stages

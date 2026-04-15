@@ -97,7 +97,7 @@ def process_mega_block(text: str, system_prompt: str, retries: int = 3) -> str:
     # Przezornie usuwamy stdout littering od litellm
     litellm.suppress_debug_info = True
 
-    model_name = config.get("model_name", "gpt-4o-mini").strip().lower()
+    model_name = config.get("model_name", "gemini-3.1-flash-lite-preview").strip().lower()
     provider = config.get("llm_provider", "").strip().lower()
     
     api_base = None
@@ -776,7 +776,7 @@ def _translate_with_sub_chunks(
         import litellm
         litellm.suppress_debug_info = True
         config = get_config()
-        model_name = config.get("model_name", "gpt-4o-mini").strip().lower()
+        model_name = config.get("model_name", "gemini-3.1-flash-lite-preview").strip().lower()
         provider = config.get("llm_provider", "").strip().lower()
         api_base = None
         if provider == "zhipuai":
@@ -894,7 +894,7 @@ def verify_translation(
     import litellm
     litellm.suppress_debug_info = True
 
-    model_name = config.get("model_name", "gpt-4o-mini").strip().lower()
+    model_name = config.get("model_name", "gemini-3.1-flash-lite-preview").strip().lower()
     provider = config.get("llm_provider", "").strip().lower()
 
     api_base = None
