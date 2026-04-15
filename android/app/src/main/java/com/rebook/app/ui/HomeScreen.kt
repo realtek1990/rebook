@@ -768,6 +768,7 @@ private fun ScreenProgress(state: ConversionState, viewModel: ConversionViewMode
 // Screen 4 — Done
 // ════════════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ScreenDone(
     state: ConversionState,
