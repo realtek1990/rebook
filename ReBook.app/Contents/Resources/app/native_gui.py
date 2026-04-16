@@ -865,6 +865,7 @@ class AppDelegate(NSObject):
         args = (str(self._selectedFile), fmt, use_llm, translate, translate_images, lang_from, lang_to, page_start, page_end, verify)
         threading.Thread(target=self._runConversion, args=args, daemon=True).start()
 
+    @objc.python_method
     def _refreshVoicesForLang(self, lang_to: str):
         """Repopulate the voice popup with voices appropriate for lang_to."""
         voices = tts_engine.voices_for(lang_to)   # dict key→label
